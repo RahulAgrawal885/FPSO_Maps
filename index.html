@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Map Viewer</title>
+
+    <!-- Google Fonts for modern typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS for the map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+
+        /* Map Container */
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* Floating UI Elements */
+        .ui-panel {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        /* File Upload Container */
+        #upload-container { top: 20px; left: 60px; width: 340px; }
+        #upload-container h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+        input[type="file"] { display: block; width: 100%; margin-bottom: 10px; font-size: 14px; }
+        .helper-text { font-size: 12px; color: #666; margin: 0; line-height: 1.4; }
+
+        /* Information Card */
+        #info-card {
+            top: 20px; right: 20px; width: 350px; max-height: 80vh; overflow-y: auto;
+            display: none; transform: translateX(20px); opacity: 0; transition: all 0.3s ease;
+        }
+        #info-card.active { display: block; transform: translateX(0); opacity: 1; }
+        #card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+        #card-title { margin: 0; font-size: 18px; color: #111; }
+        
+        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; }
+        .close-btn:hover { color: #333; }
+
+        /* Dynamic content styling */
+        .data-row { margin-bottom: 12px; }
+        .data-label { font-size: 12px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 4px; }
+        .data-value { font-size: 14px; color: #333; word-wrap: break-word; }
+
+        /* Placeholder edit button */
+        #edit-btn-placeholder { margin-top: 20px; width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s; }
+        #edit-btn-placeholder:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+
+    <div id="upload-container" class="ui-panel">
+        <h3>Upload Location Data</h3>
+        <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
+        <p class="helper-text">Include a single column named <strong>Location</strong> with coordinates like: <br><code>4 0 0.00N 104 40 60.00E</code></p>
+    </div>
+
+    <div id="info-card" class="ui-panel">
+        <div id="card-header">
+            <h2 id="card-title">Location Details</h2>
+            <button class="close-btn" id="close-card">&times;</button>
+        </div>
+        <div id="card-content"></div>
+        <button id="edit-btn-placeholder">Edit Details (Coming Soon)</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script>
+        // 1. Initialize Map
+		const map = L.map('map').setView([20, 0], 2);
+		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+			maxZoom: 19,
+			attribution: '© OpenStreetMap contributors'
+		}).addTo(map);
+		const markerGroup = L.featureGroup().addTo(map);
+
+        // 2. Parse DMS Coordinate String to Decimal Degrees
+        // Expected format: "4 0 0.00N 104 40 60.00E"
+        function parseDMSCoordinates(dmsString) {
+            if (!dmsString) return null;
+            
+            // Regex to extract Lat Degrees, Minutes, Seconds, Direction and Lng Degrees, Minutes, Seconds, Direction
+            const regex = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s*([NSns])\s+(\d+)\s+(\d+)\s+([\d.]+)\s*([EWew])\s*$/;
+            const match = dmsString.match(regex);
+            
+            if (!match) {
+                console.warn("Could not parse format for:", dmsString);
+                return null;
+            }
+
+            let latDeg = parseFloat(match[1]);
+            let latMin = parseFloat(match[2]);
+            let latSec = parseFloat(match[3]);
+            let latDir = match[4].toUpperCase();
+
+            let lngDeg = parseFloat(match[5]);
+            let lngMin = parseFloat(match[6]);
+            let lngSec = parseFloat(match[7]);
+            let lngDir = match[8].toUpperCase();
+
+            // Formula: Decimal Degrees = Degrees + (Minutes / 60) + (Seconds / 3600)
+            let lat = latDeg + (latMin / 60) + (latSec / 3600);
+            if (latDir === 'S') lat = lat * -1; // South is negative
+
+            let lng = lngDeg + (lngMin / 60) + (lngSec / 3600);
+            if (lngDir === 'W') lng = lng * -1; // West is negative
+
+            return { lat, lng };
+        }
+
+        // 3. Handle Excel Upload
+        document.getElementById('excel-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                processDataToMap(jsonData);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 4. Plot Data
+        function processDataToMap(data) {
+            markerGroup.clearLayers();
+            let validPoints = 0;
+
+            data.forEach(row => {
+                const locationStr = row.Location || row.location;
+                if (locationStr) {
+                    const coords = parseDMSCoordinates(locationStr);
+                    
+                    if (coords) {
+                        const marker = L.marker([coords.lat, coords.lng]);
+                        marker.on('click', () => showInfoCard(row));
+                        markerGroup.addLayer(marker);
+                        validPoints++;
+                    }
+                }
+            });
+
+            if (validPoints > 0) {
+                map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
+            } else {
+                alert("No valid 'Location' column found, or coordinates were formatted incorrectly.");
+            }
+        }
+
+        // 5. Handle Info Card
+        const infoCard = document.getElementById('info-card');
+        const cardContent = document.getElementById('card-content');
+        const cardTitle = document.getElementById('card-title');
+
+        function showInfoCard(rowData) {
+            cardTitle.innerText = rowData.Name || rowData.Title || 'Location Details';
+
+            let htmlContent = '';
+            for (const key in rowData) {
+                if (key !== 'Name' && key !== 'Title' && rowData[key]) {
+                    htmlContent += `
+                        <div class="data-row">
+                            <div class="data-label">${key}</div>
+                            <div class="data-value">${rowData[key]}</div>
+                        </div>
+                    `;
+                }
+            }
+
+            cardContent.innerHTML = htmlContent;
+            infoCard.style.display = 'block';
+            setTimeout(() => { infoCard.classList.add('active'); }, 10);
+        }
+
+        document.getElementById('close-card').addEventListener('click', () => {
+            infoCard.classList.remove('active');
+            setTimeout(() => { infoCard.style.display = 'none'; }, 300);
+        });
+    </script>
+</body>
+</html>
