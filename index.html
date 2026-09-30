@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Map Viewer</title>
+    <title>Interactive Map Workspace</title>
 
-    <!-- Google Fonts for modern typography -->
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     
-    <!-- Leaflet CSS for the map -->
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <style>
@@ -29,128 +29,180 @@
             padding: 20px;
         }
 
-        /* File Upload Container */
-        #upload-container { top: 20px; left: 60px; width: 340px; }
-        #upload-container h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
-        input[type="file"] { display: block; width: 100%; margin-bottom: 10px; font-size: 14px; }
-        .helper-text { font-size: 12px; color: #666; margin: 0; line-height: 1.4; }
+        /* Top Left Control Panel */
+        #control-panel { top: 20px; left: 60px; width: 340px; }
+        #control-panel h3 { margin: 0 0 15px 0; font-size: 16px; color: #333; }
+        
+        .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        .btn { 
+            flex: 1; padding: 8px; border: none; border-radius: 6px; 
+            background: #e5e7eb; color: #374151; cursor: pointer; font-weight: 500;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #d1d5db; }
+        .btn.active { background: #2563eb; color: white; }
 
-        /* Information Card */
+        hr { border: none; border-top: 1px solid #e5e7eb; margin: 15px 0; }
+        
+        .export-btn {
+            width: 100%; padding: 12px; background: #16a34a; color: white;
+            border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
+            margin-top: 10px; transition: background 0.2s;
+        }
+        .export-btn:hover { background: #15803d; }
+        
+        input[type="file"] { display: block; width: 100%; font-size: 13px; margin-bottom: 5px; }
+        .helper-text { font-size: 11px; color: #666; margin: 0; line-height: 1.4; }
+
+        /* Information & Edit Card */
         #info-card {
-            top: 20px; right: 20px; width: 350px; max-height: 80vh; overflow-y: auto;
+            top: 20px; right: 20px; width: 350px; max-height: 85vh; overflow-y: auto;
             display: none; transform: translateX(20px); opacity: 0; transition: all 0.3s ease;
         }
         #info-card.active { display: block; transform: translateX(0); opacity: 1; }
+        
         #card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
         #card-title { margin: 0; font-size: 18px; color: #111; }
-        
         .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; }
         .close-btn:hover { color: #333; }
 
-        /* Dynamic content styling */
+        /* Edit Fields */
         .data-row { margin-bottom: 12px; }
-        .data-label { font-size: 12px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 4px; }
-        .data-value { font-size: 14px; color: #333; word-wrap: break-word; }
-
-        /* Placeholder edit button */
-        #edit-btn-placeholder { margin-top: 20px; width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: background 0.2s; }
-        #edit-btn-placeholder:hover { background: #1d4ed8; }
+        .data-label { font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 600; margin-bottom: 4px; }
+        .data-input { 
+            width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;
+            font-size: 14px; color: #111; background: #f9fafb; transition: border 0.2s;
+        }
+        .data-input:focus { outline: none; border-color: #2563eb; background: #fff; }
+        
+        #save-status { font-size: 12px; color: #16a34a; text-align: center; margin-top: 15px; display: none; }
     </style>
 </head>
 <body>
 
-    <div id="upload-container" class="ui-panel">
-        <h3>Upload Location Data</h3>
+    <!-- Top Left Control Panel -->
+    <div id="control-panel" class="ui-panel">
+        <h3>Map Datasets</h3>
+        
+        <!-- 3 Buttons for 3 Excel Files -->
+        <div class="btn-group">
+            <button class="btn" onclick="loadDataset('dataset1.xlsx', this)">Map 1</button>
+            <button class="btn" onclick="loadDataset('dataset2.xlsx', this)">Map 2</button>
+            <button class="btn" onclick="loadDataset('dataset3.xlsx', this)">Map 3</button>
+        </div>
+
+        <hr>
+        <p class="helper-text" style="margin-bottom: 8px;">Or upload a file manually:</p>
         <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
-        <p class="helper-text">Include a single column named <strong>Location</strong> with coordinates like: <br><code>4 0 0.00N 104 40 60.00E</code></p>
+        
+        <hr>
+        <!-- Export Button -->
+        <button class="export-btn" onclick="exportData()">💾 Export Data to Excel</button>
     </div>
 
+    <!-- Right Side Info & Edit Card -->
     <div id="info-card" class="ui-panel">
         <div id="card-header">
-            <h2 id="card-title">Location Details</h2>
+            <h2 id="card-title">Edit Location</h2>
             <button class="close-btn" id="close-card">&times;</button>
         </div>
         <div id="card-content"></div>
-        <button id="edit-btn-placeholder">Edit Details (Coming Soon)</button>
+        <div id="save-status">Changes saved to memory!</div>
     </div>
 
     <div id="map"></div>
 
+    <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <script>
-        // 1. Initialize Map
-		const map = L.map('map').setView([20, 0], 2);
-		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-			maxZoom: 19,
-			attribution: '© OpenStreetMap contributors'
-		}).addTo(map);
-		const markerGroup = L.featureGroup().addTo(map);
+        // 1. Initialize OpenStreetMap
+        const map = L.map('map').setView([20, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
 
-        // 2. Parse DMS Coordinate String to Decimal Degrees
-        // Expected format: "4 0 0.00N 104 40 60.00E"
+        const markerGroup = L.featureGroup().addTo(map);
+
+        // Global state to hold the currently loaded data for editing/exporting
+        let currentData = [];
+        let currentFilename = "Exported_Map_Data.xlsx";
+
+        // 2. Parse DMS Coordinates (e.g. "4 0 0.00N 104 40 60.00E")
         function parseDMSCoordinates(dmsString) {
             if (!dmsString) return null;
-            
-            // Regex to extract Lat Degrees, Minutes, Seconds, Direction and Lng Degrees, Minutes, Seconds, Direction
             const regex = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s*([NSns])\s+(\d+)\s+(\d+)\s+([\d.]+)\s*([EWew])\s*$/;
             const match = dmsString.match(regex);
             
-            if (!match) {
-                console.warn("Could not parse format for:", dmsString);
-                return null;
-            }
+            if (!match) return null;
 
-            let latDeg = parseFloat(match[1]);
-            let latMin = parseFloat(match[2]);
-            let latSec = parseFloat(match[3]);
-            let latDir = match[4].toUpperCase();
+            let lat = parseFloat(match[1]) + (parseFloat(match[2]) / 60) + (parseFloat(match[3]) / 3600);
+            if (match[4].toUpperCase() === 'S') lat *= -1;
 
-            let lngDeg = parseFloat(match[5]);
-            let lngMin = parseFloat(match[6]);
-            let lngSec = parseFloat(match[7]);
-            let lngDir = match[8].toUpperCase();
-
-            // Formula: Decimal Degrees = Degrees + (Minutes / 60) + (Seconds / 3600)
-            let lat = latDeg + (latMin / 60) + (latSec / 3600);
-            if (latDir === 'S') lat = lat * -1; // South is negative
-
-            let lng = lngDeg + (lngMin / 60) + (lngSec / 3600);
-            if (lngDir === 'W') lng = lng * -1; // West is negative
+            let lng = parseFloat(match[5]) + (parseFloat(match[6]) / 60) + (parseFloat(match[7]) / 3600);
+            if (match[8].toUpperCase() === 'W') lng *= -1;
 
             return { lat, lng };
         }
 
-        // 3. Handle Excel Upload
+        // 3. Load Predefined Datasets via Buttons
+        async function loadDataset(filename, btnElement) {
+            // Update UI buttons
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+            if(btnElement) btnElement.classList.add('active');
+
+            try {
+                // Fetch file from the server
+                const response = await fetch(filename);
+                if (!response.ok) throw new Error("File not found");
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                
+                currentData = XLSX.utils.sheet_to_json(worksheet);
+                currentFilename = filename;
+                processDataToMap();
+                
+            } catch (error) {
+                alert(`Could not load "${filename}". Make sure you have uploaded it to your GitHub repository alongside your index.html file!`);
+            }
+        }
+
+        // 4. Handle Manual File Upload (Fallback)
         document.getElementById('excel-file').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
+
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+            currentFilename = file.name;
 
             const reader = new FileReader();
             reader.onload = function(e) {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
                 const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet);
-                processDataToMap(jsonData);
+                currentData = XLSX.utils.sheet_to_json(worksheet);
+                processDataToMap();
             };
             reader.readAsArrayBuffer(file);
         });
 
-        // 4. Plot Data
-        function processDataToMap(data) {
+        // 5. Plot Data to Map
+        function processDataToMap() {
             markerGroup.clearLayers();
             let validPoints = 0;
 
-            data.forEach(row => {
+            currentData.forEach((row, index) => {
                 const locationStr = row.Location || row.location;
                 if (locationStr) {
                     const coords = parseDMSCoordinates(locationStr);
-                    
                     if (coords) {
                         const marker = L.marker([coords.lat, coords.lng]);
-                        marker.on('click', () => showInfoCard(row));
+                        // Pass the array index to the click handler so we know which row to edit
+                        marker.on('click', () => showInfoCard(index));
                         markerGroup.addLayer(marker);
                         validPoints++;
                     }
@@ -159,29 +211,31 @@
 
             if (validPoints > 0) {
                 map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
-            } else {
-                alert("No valid 'Location' column found, or coordinates were formatted incorrectly.");
             }
+            
+            // Hide info card if it was open
+            document.getElementById('info-card').classList.remove('active');
         }
 
-        // 5. Handle Info Card
+        // 6. Show Info Card for Editing
         const infoCard = document.getElementById('info-card');
         const cardContent = document.getElementById('card-content');
         const cardTitle = document.getElementById('card-title');
 
-        function showInfoCard(rowData) {
-            cardTitle.innerText = rowData.Name || rowData.Title || 'Location Details';
+        function showInfoCard(index) {
+            const rowData = currentData[index];
+            cardTitle.innerText = rowData.Name || rowData.Title || 'Edit Location';
 
             let htmlContent = '';
             for (const key in rowData) {
-                if (key !== 'Name' && key !== 'Title' && rowData[key]) {
-                    htmlContent += `
-                        <div class="data-row">
-                            <div class="data-label">${key}</div>
-                            <div class="data-value">${rowData[key]}</div>
-                        </div>
-                    `;
-                }
+                // Render an input field for every column
+                htmlContent += `
+                    <div class="data-row">
+                        <div class="data-label">${key}</div>
+                        <input type="text" class="data-input" value="${rowData[key] || ''}" 
+                               onchange="updateData(${index}, '${key}', this.value)">
+                    </div>
+                `;
             }
 
             cardContent.innerHTML = htmlContent;
@@ -189,10 +243,48 @@
             setTimeout(() => { infoCard.classList.add('active'); }, 10);
         }
 
+        // Close Info Card
         document.getElementById('close-card').addEventListener('click', () => {
             infoCard.classList.remove('active');
             setTimeout(() => { infoCard.style.display = 'none'; }, 300);
         });
+
+        // 7. Handle Live Data Editing
+        function updateData(index, key, newValue) {
+            // Update our internal memory
+            currentData[index][key] = newValue;
+
+            // Show a quick saved message
+            const status = document.getElementById('save-status');
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 2000);
+
+            // If the user edited the 'Location' coordinates, instantly redraw the map!
+            if (key === 'Location' || key === 'location') {
+                processDataToMap();
+                // Re-open the card since processDataToMap closes it
+                showInfoCard(index); 
+            }
+        }
+
+        // 8. Export Data back to Excel
+        function exportData() {
+            if (currentData.length === 0) {
+                alert("No data loaded to export!");
+                return;
+            }
+
+            // Convert JSON memory back to an Excel Sheet
+            const worksheet = XLSX.utils.json_to_sheet(currentData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Map Data");
+
+            // Add "Updated_" to the filename so you don't overwrite originals accidentally
+            let exportName = "Updated_" + currentFilename;
+            
+            // Trigger download
+            XLSX.writeFile(workbook, exportName);
+        }
     </script>
 </body>
 </html>
