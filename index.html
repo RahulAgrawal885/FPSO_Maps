@@ -3,287 +3,360 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Map Workspace</title>
+    <title>Meeting Map Dashboard</title>
 
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    
-    <!-- Leaflet CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <style>
         * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+        body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; display: flex; }
 
-        /* Map Container */
-        #map { height: 100vh; width: 100vw; z-index: 1; }
-
-        /* Floating UI Elements */
-        .ui-panel {
-            position: absolute;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(5px);
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        /* --- LEFT PANE --- */
+        #left-pane {
+            width: 350px;
+            min-width: 350px;
+            height: 100vh;
+            background: #ffffff;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
             z-index: 1000;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* Top Left Control Panel */
-        #control-panel { top: 20px; left: 60px; width: 340px; }
-        #control-panel h3 { margin: 0 0 15px 0; font-size: 16px; color: #333; }
+        #controls-section { padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+        #controls-section h3 { margin: 0 0 15px 0; font-size: 16px; color: #111; }
         
-        .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
         .btn { 
             flex: 1; padding: 8px; border: none; border-radius: 6px; 
-            background: #e5e7eb; color: #374151; cursor: pointer; font-weight: 500;
-            transition: background 0.2s;
+            background: #e5e7eb; color: #374151; cursor: pointer; font-weight: 500; transition: background 0.2s;
         }
         .btn:hover { background: #d1d5db; }
         .btn.active { background: #2563eb; color: white; }
 
-        hr { border: none; border-top: 1px solid #e5e7eb; margin: 15px 0; }
-        
-        .export-btn {
-            width: 100%; padding: 12px; background: #16a34a; color: white;
-            border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
-            margin-top: 10px; transition: background 0.2s;
-        }
+        .export-btn { width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 10px; transition: background 0.2s; }
         .export-btn:hover { background: #15803d; }
         
-        input[type="file"] { display: block; width: 100%; font-size: 13px; margin-bottom: 5px; }
-        .helper-text { font-size: 11px; color: #666; margin: 0; line-height: 1.4; }
+        input[type="file"] { display: block; width: 100%; font-size: 13px; margin-top: 10px; }
 
-        /* Information & Edit Card */
-        #info-card {
-            top: 20px; right: 20px; width: 350px; max-height: 85vh; overflow-y: auto;
-            display: none; transform: translateX(20px); opacity: 0; transition: all 0.3s ease;
+        /* The Clickable List */
+        #list-section { flex-grow: 1; overflow-y: auto; padding: 10px 0; }
+        .list-item { 
+            padding: 12px 20px; border-bottom: 1px solid #f3f4f6; cursor: pointer;
+            display: flex; align-items: center; gap: 12px; transition: background 0.2s;
         }
-        #info-card.active { display: block; transform: translateX(0); opacity: 1; }
-        
-        #card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
-        #card-title { margin: 0; font-size: 18px; color: #111; }
-        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; }
-        .close-btn:hover { color: #333; }
+        .list-item:hover { background: #f9fafb; }
+        .list-item.active { background: #eff6ff; border-left: 4px solid #2563eb; padding-left: 16px; }
+        .list-number { 
+            background: #2563eb; color: white; width: 24px; height: 24px; 
+            border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;
+        }
+        .list-item.active .list-number { background: #dc2626; }
+        .list-text { font-size: 14px; color: #111; font-weight: 500; }
 
-        /* Edit Fields */
-        .data-row { margin-bottom: 12px; }
-        .data-label { font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 600; margin-bottom: 4px; }
+        /* --- MAP AREA --- */
+        #map-container { flex-grow: 1; height: 100vh; position: relative; }
+        #map { height: 100%; width: 100%; z-index: 1; }
+
+        /* Custom Numbered Map Markers */
+        .custom-marker {
+            background-color: #2563eb; color: white; border-radius: 50%; border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 12px; transition: all 0.2s ease-out;
+        }
+        .custom-marker.active {
+            background-color: #dc2626; /* Turns red and gets bigger */
+            z-index: 1000 !important; font-size: 16px; border: 3px solid white;
+        }
+
+        /* --- RIGHT PANE (EDITOR) --- */
+        #right-pane {
+            width: 400px;
+            min-width: 400px;
+            height: 100vh;
+            background: #ffffff;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            display: none; /* Hidden strictly until selected */
+            transition: transform 0.3s ease;
+        }
+        #right-pane.active { display: flex; transform: translateX(0); }
+
+        #right-header { padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb; }
+        #right-title { margin: 0; font-size: 18px; color: #111; display: flex; align-items: center; gap: 10px; }
+        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; }
+        
+        #right-content { flex-grow: 1; overflow-y: auto; padding: 20px; }
+        
+        .data-row { margin-bottom: 14px; }
+        .data-label { font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 700; margin-bottom: 6px; }
         .data-input { 
-            width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px;
+            width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;
             font-size: 14px; color: #111; background: #f9fafb; transition: border 0.2s;
         }
-        .data-input:focus { outline: none; border-color: #2563eb; background: #fff; }
+        /* Make 'Notes' and 'Meeting Action' fields look different/bigger */
+        textarea.data-input { resize: vertical; min-height: 80px; }
+        .data-input:focus { outline: none; border-color: #2563eb; background: #fff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
         
-        #save-status { font-size: 12px; color: #16a34a; text-align: center; margin-top: 15px; display: none; }
+        /* Visual Divider for '--- TEXT ---' columns */
+        .section-divider { 
+            margin: 25px 0 15px 0; padding-bottom: 5px; border-bottom: 2px solid #e5e7eb;
+            font-size: 12px; font-weight: bold; color: #4b5563; text-transform: uppercase; letter-spacing: 1px;
+        }
+
+        #save-status { background: #10b981; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; }
     </style>
 </head>
 <body>
 
-    <!-- Top Left Control Panel -->
-    <div id="control-panel" class="ui-panel">
-        <h3>Map Datasets</h3>
-        
-        <!-- 3 Buttons for 3 Excel Files -->
-        <div class="btn-group">
-            <button class="btn" onclick="loadDataset('dataset1.xlsx', this)">Map 1</button>
-            <button class="btn" onclick="loadDataset('dataset2.xlsx', this)">Map 2</button>
-            <button class="btn" onclick="loadDataset('dataset3.xlsx', this)">Map 3</button>
+    <!-- LEFT PANE -->
+    <div id="left-pane">
+        <div id="controls-section">
+            <h3>Map Datasets</h3>
+            <div class="btn-group">
+                <button class="btn" onclick="loadDataset('dataset1.xlsx', this)">Map 1</button>
+                <button class="btn" onclick="loadDataset('dataset2.xlsx', this)">Map 2</button>
+                <button class="btn" onclick="loadDataset('dataset3.xlsx', this)">Map 3</button>
+            </div>
+            <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
+            <button class="export-btn" onclick="exportData()">💾 Export Meeting Data</button>
         </div>
-
-        <hr>
-        <p class="helper-text" style="margin-bottom: 8px;">Or upload a file manually:</p>
-        <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
         
-        <hr>
-        <!-- Export Button -->
-        <button class="export-btn" onclick="exportData()">💾 Export Data to Excel</button>
+        <!-- Generated List goes here -->
+        <div id="list-section"></div>
     </div>
 
-    <!-- Right Side Info & Edit Card -->
-    <div id="info-card" class="ui-panel">
-        <div id="card-header">
-            <h2 id="card-title">Edit Location</h2>
-            <button class="close-btn" id="close-card">&times;</button>
-        </div>
-        <div id="card-content"></div>
-        <div id="save-status">Changes saved to memory!</div>
+    <!-- CENTER MAP -->
+    <div id="map-container">
+        <div id="map"></div>
     </div>
 
-    <div id="map"></div>
+    <!-- RIGHT PANE -->
+    <div id="right-pane">
+        <div id="right-header">
+            <h2 id="right-title"><span id="header-number" class="list-number"></span><span id="header-text">Details</span></h2>
+            <button class="close-btn" id="close-card" onclick="closeRightPane()">&times;</button>
+        </div>
+        <div id="save-status">💾 Live changes saved</div>
+        <div id="right-content"></div>
+    </div>
 
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <script>
-        // 1. Initialize OpenStreetMap
+        // 1. Initialize Map
         const map = L.map('map').setView([20, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap contributors'
+            maxZoom: 19, attribution: '© OpenStreetMap'
         }).addTo(map);
 
         const markerGroup = L.featureGroup().addTo(map);
 
-        // Global state to hold the currently loaded data for editing/exporting
+        // State Management
         let currentData = [];
-        let currentFilename = "Exported_Map_Data.xlsx";
+        let currentFilename = "Meeting_Export.xlsx";
+        let activeIndex = null; 
+        let mapMarkers = {}; // Stores leaflet marker objects by data index
 
-        // 2. Parse DMS Coordinates (e.g. "4 0 0.00N 104 40 60.00E")
+        // 2. Parse DMS Coordinates
         function parseDMSCoordinates(dmsString) {
             if (!dmsString) return null;
             const regex = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s*([NSns])\s+(\d+)\s+(\d+)\s+([\d.]+)\s*([EWew])\s*$/;
             const match = dmsString.match(regex);
-            
             if (!match) return null;
-
             let lat = parseFloat(match[1]) + (parseFloat(match[2]) / 60) + (parseFloat(match[3]) / 3600);
             if (match[4].toUpperCase() === 'S') lat *= -1;
-
             let lng = parseFloat(match[5]) + (parseFloat(match[6]) / 60) + (parseFloat(match[7]) / 3600);
             if (match[8].toUpperCase() === 'W') lng *= -1;
-
             return { lat, lng };
         }
 
-        // 3. Load Predefined Datasets via Buttons
+        // 3. Create Custom Numbered Marker Icon
+        function getMarkerIcon(number, isActive) {
+            const size = isActive ? 45 : 30; // Bigger when active
+            return L.divIcon({
+                className: `custom-marker ${isActive ? 'active' : ''}`,
+                html: `<div>${number}</div>`,
+                iconSize: [size, size],
+                iconAnchor: [size/2, size/2] // Centers the dot perfectly
+            });
+        }
+
+        // 4. File Loading Handlers
         async function loadDataset(filename, btnElement) {
-            // Update UI buttons
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
-
             try {
-                // Fetch file from the server
                 const response = await fetch(filename);
                 if (!response.ok) throw new Error("File not found");
-                
                 const arrayBuffer = await response.arrayBuffer();
-                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                
-                currentData = XLSX.utils.sheet_to_json(worksheet);
-                currentFilename = filename;
-                processDataToMap();
-                
+                parseWorkbook(arrayBuffer, filename);
             } catch (error) {
-                alert(`Could not load "${filename}". Make sure you have uploaded it to your GitHub repository alongside your index.html file!`);
+                alert(`Could not load "${filename}". Please upload manually.`);
             }
         }
 
-        // 4. Handle Manual File Upload (Fallback)
         document.getElementById('excel-file').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
-
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            currentFilename = file.name;
-
             const reader = new FileReader();
-            reader.onload = function(e) {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                currentData = XLSX.utils.sheet_to_json(worksheet);
-                processDataToMap();
-            };
+            reader.onload = (e) => parseWorkbook(e.target.result, file.name);
             reader.readAsArrayBuffer(file);
         });
 
-        // 5. Plot Data to Map
-        function processDataToMap() {
-            markerGroup.clearLayers();
-            let validPoints = 0;
+        function parseWorkbook(dataBuffer, filename) {
+            currentFilename = filename;
+            const workbook = XLSX.read(dataBuffer, {type: 'array'});
+            currentData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            closeRightPane();
+            processData();
+        }
 
-            currentData.forEach((row, index) => {
-                const locationStr = row.Location || row.location;
-                if (locationStr) {
-                    const coords = parseDMSCoordinates(locationStr);
+        // 5. Process Data: Build Markers & Left List
+        function processData() {
+            markerGroup.clearLayers();
+            mapMarkers = {};
+            const listSection = document.getElementById('list-section');
+            listSection.innerHTML = '';
+            
+            let displayNum = 1; // 1-based counter for the UI
+
+            currentData.forEach((row, dataIndex) => {
+                const locStr = row.Location || row.location;
+                if (locStr) {
+                    const coords = parseDMSCoordinates(locStr);
                     if (coords) {
-                        const marker = L.marker([coords.lat, coords.lng]);
-                        // Pass the array index to the click handler so we know which row to edit
-                        marker.on('click', () => showInfoCard(index));
+                        const currentNum = displayNum; // Freeze current number for this iteration
+                        const title = row.Name || row["Project Name"] || `Location ${currentNum}`;
+                        
+                        // 5a. Create Map Marker
+                        const marker = L.marker([coords.lat, coords.lng], {
+                            icon: getMarkerIcon(currentNum, false)
+                        });
+                        marker.on('click', () => selectLocation(dataIndex, currentNum, coords));
                         markerGroup.addLayer(marker);
-                        validPoints++;
+                        mapMarkers[dataIndex] = marker;
+
+                        // 5b. Create List Item
+                        const listItem = document.createElement('div');
+                        listItem.className = 'list-item';
+                        listItem.id = `list-item-${dataIndex}`;
+                        listItem.innerHTML = `
+                            <div class="list-number">${currentNum}</div>
+                            <div class="list-text">${title}</div>
+                        `;
+                        listItem.onclick = () => selectLocation(dataIndex, currentNum, coords);
+                        listSection.appendChild(listItem);
+
+                        displayNum++;
                     }
                 }
             });
 
-            if (validPoints > 0) {
+            if (displayNum > 1) {
                 map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
             }
-            
-            // Hide info card if it was open
-            document.getElementById('info-card').classList.remove('active');
         }
 
-        // 6. Show Info Card for Editing
-        const infoCard = document.getElementById('info-card');
-        const cardContent = document.getElementById('card-content');
-        const cardTitle = document.getElementById('card-title');
+        // 6. Handle Selection (Clicking List OR Map)
+        function selectLocation(dataIndex, number, coords) {
+            // Reset previously active marker & list item
+            if (activeIndex !== null) {
+                if (mapMarkers[activeIndex]) {
+                    // We need to fetch its original number from the list UI to reset the icon
+                    const oldNumText = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
+                    mapMarkers[activeIndex].setIcon(getMarkerIcon(oldNumText, false));
+                }
+                const oldList = document.getElementById(`list-item-${activeIndex}`);
+                if (oldList) oldList.classList.remove('active');
+            }
 
-        function showInfoCard(index) {
-            const rowData = currentData[index];
-            cardTitle.innerText = rowData.Name || rowData.Title || 'Edit Location';
+            // Set new active state
+            activeIndex = dataIndex;
+            mapMarkers[dataIndex].setIcon(getMarkerIcon(number, true));
+            document.getElementById(`list-item-${dataIndex}`).classList.add('active');
 
-            let htmlContent = '';
+            // Pan Map smoothly to the point
+            map.flyTo([coords.lat, coords.lng], 14, { duration: 0.5 });
+
+            // Populate and Show Right Pane
+            buildRightPane(dataIndex, number);
+        }
+
+        // 7. Build Editor Pane
+        function buildRightPane(dataIndex, number) {
+            const rowData = currentData[dataIndex];
+            document.getElementById('header-number').innerText = number;
+            document.getElementById('header-text').innerText = rowData.Name || rowData["Project Name"] || 'Details';
+            
+            let html = '';
             for (const key in rowData) {
-                // Render an input field for every column
-                htmlContent += `
+                const val = rowData[key] || '';
+                
+                // If a column name starts with "---", treat it as a visual section divider
+                if (key.startsWith('---')) {
+                    const sectionName = key.replace(/---/g, '').trim();
+                    html += `<div class="section-divider">${sectionName}</div>`;
+                    continue; // skip rendering an input box
+                }
+
+                // If column is "Notes" or "Meeting", make it a large textarea
+                const isNotes = key.toLowerCase().includes('note') || key.toLowerCase().includes('action');
+                
+                html += `
                     <div class="data-row">
                         <div class="data-label">${key}</div>
-                        <input type="text" class="data-input" value="${rowData[key] || ''}" 
-                               onchange="updateData(${index}, '${key}', this.value)">
+                        ${isNotes ? 
+                            `<textarea class="data-input" onchange="updateData(${dataIndex}, '${key}', this.value)">${val}</textarea>` : 
+                            `<input type="text" class="data-input" value="${val}" onchange="updateData(${dataIndex}, '${key}', this.value)">`
+                        }
                     </div>
                 `;
             }
 
-            cardContent.innerHTML = htmlContent;
-            infoCard.style.display = 'block';
-            setTimeout(() => { infoCard.classList.add('active'); }, 10);
+            document.getElementById('right-content').innerHTML = html;
+            document.getElementById('right-pane').classList.add('active');
         }
 
-        // Close Info Card
-        document.getElementById('close-card').addEventListener('click', () => {
-            infoCard.classList.remove('active');
-            setTimeout(() => { infoCard.style.display = 'none'; }, 300);
-        });
+        function closeRightPane() {
+            document.getElementById('right-pane').classList.remove('active');
+            // Reset active marker visually
+            if (activeIndex !== null && mapMarkers[activeIndex]) {
+                const num = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
+                mapMarkers[activeIndex].setIcon(getMarkerIcon(num, false));
+                document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
+                activeIndex = null;
+            }
+        }
 
-        // 7. Handle Live Data Editing
-        function updateData(index, key, newValue) {
-            // Update our internal memory
-            currentData[index][key] = newValue;
-
-            // Show a quick saved message
+        // 8. Live Update & Export
+        function updateData(dataIndex, key, newValue) {
+            currentData[dataIndex][key] = newValue;
+            
+            // Flash save status
             const status = document.getElementById('save-status');
-            status.style.display = 'block';
-            setTimeout(() => { status.style.display = 'none'; }, 2000);
+            status.style.opacity = 1;
+            setTimeout(() => { status.style.opacity = 0; }, 2000);
 
-            // If the user edited the 'Location' coordinates, instantly redraw the map!
-            if (key === 'Location' || key === 'location') {
-                processDataToMap();
-                // Re-open the card since processDataToMap closes it
-                showInfoCard(index); 
+            // If location changed, redraw everything
+            if (key.toLowerCase() === 'location') {
+                processData();
             }
         }
 
-        // 8. Export Data back to Excel
         function exportData() {
-            if (currentData.length === 0) {
-                alert("No data loaded to export!");
-                return;
-            }
-
-            // Convert JSON memory back to an Excel Sheet
+            if (currentData.length === 0) return alert("No data to export!");
             const worksheet = XLSX.utils.json_to_sheet(currentData);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Map Data");
-
-            // Add "Updated_" to the filename so you don't overwrite originals accidentally
-            let exportName = "Updated_" + currentFilename;
-            
-            // Trigger download
-            XLSX.writeFile(workbook, exportName);
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Meeting Notes");
+            XLSX.writeFile(workbook, "Updated_" + currentFilename);
         }
     </script>
 </body>
