@@ -272,7 +272,7 @@
             activeIndex = dataIndex;
             mapMarkers[dataIndex].setIcon(getMarkerIcon(number, true));
             document.getElementById(`list-item-${dataIndex}`).classList.add('active');
-            map.flyTo([coords.lat, coords.lng], 14, { duration: 0.5 });
+            map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
             buildRightPane(dataIndex, number);
         }
 
