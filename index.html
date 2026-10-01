@@ -6,7 +6,13 @@
     <title>Meeting Map Dashboard</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet MarkerCluster CSS (Handles the overlapping dots natively) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
     <style>
         * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
@@ -44,6 +50,7 @@
         #map-container { flex-grow: 1; height: 100vh; position: relative; }
         #map { height: 100%; width: 100%; z-index: 1; }
 
+        /* Only specific markers get this style, Clusters use their own default green/yellow style */
         .custom-marker { background-color: #2563eb; color: white; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; transition: all 0.2s ease-out; }
         .custom-marker.active { background-color: #dc2626; z-index: 1000 !important; font-size: 16px; border: 3px solid white; }
 
@@ -65,6 +72,18 @@
         
         .section-divider { margin: 25px 0 15px 0; padding-bottom: 5px; border-bottom: 2px solid #e5e7eb; font-size: 12px; font-weight: bold; color: #4b5563; text-transform: uppercase; letter-spacing: 1px; }
         #save-status { background: #10b981; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; }
+
+        /* Custom Modal Overlay styles */
+        #modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 9999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+        .modal-box { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 400px; text-align: center; }
+        .modal-box h3 { margin: 0 0 15px 0; color: #111; font-size: 18px; }
+        .modal-box p { color: #4b5563; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+        .modal-btn-group { display: flex; gap: 10px; justify-content: center; }
+        .modal-btn { padding: 10px 20px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .modal-btn-cancel { background: #e5e7eb; color: #374151; }
+        .modal-btn-cancel:hover { background: #d1d5db; }
+        .modal-btn-danger { background: #dc2626; color: white; }
+        .modal-btn-danger:hover { background: #b91c1c; }
     </style>
 </head>
 <body>
@@ -75,9 +94,9 @@
             <h3>Map Datasets</h3>
             <div id="active-indicator">Status: Waiting for data...</div>
             <div class="btn-group">
-                <button class="btn" onclick="loadDataset('dataset1.xlsx', 'Map 1', this)">Map 1</button>
-                <button class="btn" onclick="loadDataset('dataset2.xlsx', 'Map 2', this)">Map 2</button>
-                <button class="btn" onclick="loadDataset('dataset3.xlsx', 'Map 3', this)">Map 3</button>
+                <button class="btn" onclick="requestDatasetLoad('dataset1.xlsx', 'Map 1', this)">Map 1</button>
+                <button class="btn" onclick="requestDatasetLoad('dataset2.xlsx', 'Map 2', this)">Map 2</button>
+                <button class="btn" onclick="requestDatasetLoad('dataset3.xlsx', 'Map 3', this)">Map 3</button>
             </div>
             <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
             <button class="export-btn" onclick="exportData()">💾 Export Meeting Data</button>
@@ -101,31 +120,72 @@
         <div id="right-content"></div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Custom Safety Modal -->
+    <div id="modal-overlay">
+        <div class="modal-box">
+            <h3>Unsaved Changes!</h3>
+            <p>You have made edits to the current data. If you load a new map now, you will lose your meeting notes. Do you want to discard them?</p>
+            <div class="modal-btn-group">
+                <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Go Back</button>
+                <button class="modal-btn modal-btn-danger" onclick="confirmDiscard()">Discard Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- MarkerCluster Script -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
     <script>
         const map = L.map('map').setView([20, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-        const markerGroup = L.featureGroup().addTo(map);
+        
+        // MarkerClusterGroup handles overlaps with Leaflet's default green/yellow/red styling
+        const markerGroup = L.markerClusterGroup({
+            maxClusterRadius: 40, 
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true
+        }).addTo(map);
 
         let currentData = [];
         let currentFilename = "Meeting_Export.xlsx";
         let activeIndex = null; 
         let mapMarkers = {}; 
-
-        // Unsaved changes tracker
         let hasUnsavedChanges = false;
         
-        // Safety warning if user tries to close tab without exporting
+        // Modal State Variables
+        let pendingAction = null; 
+
+        // Block accidental tab closures
         window.addEventListener('beforeunload', function (e) {
             if (hasUnsavedChanges) {
                 e.preventDefault();
-                e.returnValue = ''; // Triggers the browser's "Leave site?" warning
+                e.returnValue = ''; 
             }
         });
 
+        // --- Custom Modal Logic ---
+        function showModal(action) {
+            pendingAction = action;
+            document.getElementById('modal-overlay').style.display = 'flex';
+        }
+
+        function closeModal() {
+            pendingAction = null;
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+
+        function confirmDiscard() {
+            document.getElementById('modal-overlay').style.display = 'none';
+            hasUnsavedChanges = false;
+            if (pendingAction) pendingAction();
+        }
+
+        // --- Parsing Logic ---
         function parseCoordinates(locStr) {
             if (!locStr) return null;
             const dmsRegex = /^\s*(\d+)\s+(\d+)\s*([\d.]+)?\s*([NSns])\s+(\d+)\s+(\d+)\s*([\d.]+)?\s*([EWew])\s*$/;
@@ -163,14 +223,22 @@
             }
         }
 
-        async function loadDataset(filename, mapLabel, btnElement) {
-            if (hasUnsavedChanges && !confirm("You have unsaved changes! Are you sure you want to load a new map without exporting first?")) return;
+        // --- File Loading ---
+        function requestDatasetLoad(filename, mapLabel, btnElement) {
+            if (hasUnsavedChanges) {
+                showModal(() => loadDataset(filename, mapLabel, btnElement));
+            } else {
+                loadDataset(filename, mapLabel, btnElement);
+            }
+        }
 
+        async function loadDataset(filename, mapLabel, btnElement) {
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
             setActiveIndicator(`Loading ${filename}...`, 'cloud');
             try {
-                const response = await fetch(filename);
+                // Cache-busting parameter to ensure we pull the freshest file from GitHub
+                const response = await fetch(filename + '?t=' + new Date().getTime());
                 if (!response.ok) throw new Error("Not found");
                 const arrayBuffer = await response.arrayBuffer();
                 parseWorkbook(arrayBuffer, filename);
@@ -178,39 +246,42 @@
                 hasUnsavedChanges = false;
             } catch (error) {
                 setActiveIndicator(`Failed to load: ${filename}`, 'manual');
-                alert(`Could not load "${filename}". Make sure it is uploaded exactly with this name.`);
             }
         }
 
         document.getElementById('excel-file').addEventListener('change', function(e) {
-            if (hasUnsavedChanges && !confirm("You have unsaved changes! Are you sure you want to load a new map without exporting first?")) {
-                e.target.value = ''; // Reset file input
-                return;
-            }
-
             const file = e.target.files[0];
             if (!file) return;
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            setActiveIndicator(`Active: Manual Upload (${file.name})`, 'manual');
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                parseWorkbook(e.target.result, file.name);
-                hasUnsavedChanges = false;
+
+            const handleFile = () => {
+                document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+                setActiveIndicator(`Active: Manual Upload (${file.name})`, 'manual');
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    parseWorkbook(evt.target.result, file.name);
+                    hasUnsavedChanges = false;
+                }
+                reader.readAsArrayBuffer(file);
+            };
+
+            if (hasUnsavedChanges) {
+                showModal(handleFile);
+                e.target.value = ''; // Reset input so it can be re-selected if user cancels
+            } else {
+                handleFile();
             }
-            reader.readAsArrayBuffer(file);
         });
 
         function parseWorkbook(dataBuffer, filename) {
             currentFilename = filename;
             const workbook = XLSX.read(dataBuffer, {type: 'array'});
-            
-            // {defval: ""} forces it to read completely empty columns!
+            // {defval: ""} captures blank columns like "is SAM?" perfectly
             currentData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {defval: ""});
-            
             closeRightPane();
             processData();
         }
 
+        // --- Data Processing & UI ---
         function processData() {
             markerGroup.clearLayers();
             mapMarkers = {};
@@ -228,6 +299,7 @@
                     const title = row["Platform Name"] || row.Field || row.Label || row["OED ID"] || `Location ${currentNum}`;
                     
                     const marker = L.marker([coords.lat, coords.lng], { icon: getMarkerIcon(currentNum, false) });
+                    
                     marker.on('click', () => selectLocation(dataIndex, currentNum, coords));
                     markerGroup.addLayer(marker);
                     mapMarkers[dataIndex] = marker;
@@ -265,13 +337,22 @@
                 document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
             }
             activeIndex = dataIndex;
-            mapMarkers[dataIndex].setIcon(getMarkerIcon(number, true));
+            
+            const targetMarker = mapMarkers[dataIndex];
+            targetMarker.setIcon(getMarkerIcon(number, true));
             document.getElementById(`list-item-${dataIndex}`).classList.add('active');
             
-            // Smoother regional view zoom (Level 5)
-            map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
-            
             buildRightPane(dataIndex, number);
+
+            // Smart zoom logic (Cluster awareness vs standard country zoom)
+            const parentCluster = markerGroup.getVisibleParent(targetMarker);
+            if (parentCluster && parentCluster !== targetMarker) {
+                markerGroup.zoomToShowLayer(targetMarker, function() {
+                    map.panTo([coords.lat, coords.lng]);
+                });
+            } else {
+                map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
+            }
         }
 
         function buildRightPane(dataIndex, number) {
@@ -282,14 +363,10 @@
             let html = '';
             for (const key in rowData) {
                 const val = rowData[key] || '';
-                
-                // Keep the visual section dividers
                 if (key.startsWith('---')) {
                     html += `<div class="section-divider">${key.replace(/---/g, '').trim()}</div>`;
                     continue; 
                 }
-                
-                // Ignore empty keys (sometimes created by Excel artifacts)
                 if (key.trim() === '') continue;
 
                 const isNotes = key.toLowerCase().includes('note') || key.toLowerCase().includes('action');
@@ -315,23 +392,19 @@
 
         function updateData(dataIndex, key, newValue) {
             currentData[dataIndex][key] = newValue;
-            hasUnsavedChanges = true; // Mark as edited so browser warns on close
-            
+            hasUnsavedChanges = true; 
             const status = document.getElementById('save-status');
             status.style.opacity = 1;
             setTimeout(() => { status.style.opacity = 0; }, 2000);
-            
             if (key.toLowerCase() === 'location') processData();
         }
 
         function exportData() {
-            if (currentData.length === 0) return alert("No data to export!");
+            if (currentData.length === 0) return;
             const worksheet = XLSX.utils.json_to_sheet(currentData);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Meeting Notes");
             XLSX.writeFile(workbook, "Updated_" + currentFilename);
-            
-            // Clear warning since we just saved
             hasUnsavedChanges = false;
         }
     </script>
