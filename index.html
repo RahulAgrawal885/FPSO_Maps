@@ -18,11 +18,7 @@
         #controls-section { padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
         #controls-section h3 { margin: 0 0 10px 0; font-size: 16px; color: #111; }
         
-        /* New Active File Indicator */
-        #active-indicator {
-            margin-bottom: 15px; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 600;
-            background: #e5e7eb; color: #374151; border: 1px solid #d1d5db;
-        }
+        #active-indicator { margin-bottom: 15px; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 600; background: #e5e7eb; color: #374151; border: 1px solid #d1d5db; }
 
         .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
         .btn { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #e5e7eb; color: #374151; cursor: pointer; font-weight: 500; transition: background 0.2s; }
@@ -34,7 +30,6 @@
         
         input[type="file"] { display: block; width: 100%; font-size: 13px; margin-top: 10px; }
 
-        /* Warning for missing coordinates */
         #skipped-warning { margin-top: 10px; font-size: 12px; color: #dc2626; font-weight: 600; display: none; }
 
         /* The Clickable List */
@@ -75,37 +70,26 @@
 </head>
 <body>
 
-    <!-- LEFT PANE -->
     <div id="left-pane">
         <div id="controls-section">
             <h3>Map Datasets</h3>
-            
-            <!-- Active File Indicator -->
             <div id="active-indicator">Status: Waiting for data...</div>
-
             <div class="btn-group">
                 <button class="btn" onclick="loadDataset('dataset1.xlsx', 'Map 1', this)">Map 1</button>
                 <button class="btn" onclick="loadDataset('dataset2.xlsx', 'Map 2', this)">Map 2</button>
                 <button class="btn" onclick="loadDataset('dataset3.xlsx', 'Map 3', this)">Map 3</button>
             </div>
-            
             <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
-            
             <button class="export-btn" onclick="exportData()">💾 Export Meeting Data</button>
-
-            <!-- Skipped Rows Warning -->
             <div id="skipped-warning"></div>
         </div>
-        
         <div id="list-section"></div>
     </div>
 
-    <!-- CENTER MAP -->
     <div id="map-container">
         <div id="map"></div>
     </div>
 
-    <!-- RIGHT PANE -->
     <div id="right-pane">
         <div id="right-header">
             <h2 id="right-title"><span id="header-number" class="list-number"></span><span id="header-text">Details</span></h2>
@@ -115,7 +99,6 @@
         <div id="right-content"></div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
@@ -129,14 +112,10 @@
         let activeIndex = null; 
         let mapMarkers = {}; 
 
-        // UPDATED: Much more forgiving coordinate parser
         function parseCoordinates(locStr) {
             if (!locStr) return null;
-            
-            // 1. Try DMS format (Allows optional decimals and optional spaces)
             const dmsRegex = /^\s*(\d+)\s+(\d+)\s*([\d.]+)?\s*([NSns])\s+(\d+)\s+(\d+)\s*([\d.]+)?\s*([EWew])\s*$/;
             const match = locStr.match(dmsRegex);
-            
             if (match) {
                 let lat = parseFloat(match[1]) + (parseFloat(match[2]) / 60) + (parseFloat(match[3] || 0) / 3600);
                 if (match[4].toUpperCase() === 'S') lat *= -1;
@@ -144,8 +123,6 @@
                 if (match[8].toUpperCase() === 'W') lng *= -1;
                 return { lat, lng };
             }
-
-            // 2. Fallback: Try standard decimal degrees (e.g. "4.00, 104.66")
             if (locStr.includes(',')) {
                 const parts = locStr.split(',');
                 if (parts.length === 2) {
@@ -154,8 +131,7 @@
                     if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
                 }
             }
-            
-            return null; // Return null if totally invalid
+            return null; 
         }
 
         function getMarkerIcon(number, isActive) {
@@ -163,7 +139,6 @@
             return L.divIcon({ className: `custom-marker ${isActive ? 'active' : ''}`, html: `<div>${number}</div>`, iconSize: [size, size], iconAnchor: [size/2, size/2] });
         }
 
-        // --- File Status Indicator Logic ---
         function setActiveIndicator(text, type) {
             const ind = document.getElementById('active-indicator');
             ind.innerText = text;
@@ -177,9 +152,7 @@
         async function loadDataset(filename, mapLabel, btnElement) {
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             if(btnElement) btnElement.classList.add('active');
-            
             setActiveIndicator(`Loading ${filename}...`, 'cloud');
-
             try {
                 const response = await fetch(filename);
                 if (!response.ok) throw new Error("Not found");
@@ -195,10 +168,8 @@
         document.getElementById('excel-file').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
-            
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             setActiveIndicator(`Active: Manual Upload (${file.name})`, 'manual');
-
             const reader = new FileReader();
             reader.onload = (e) => parseWorkbook(e.target.result, file.name);
             reader.readAsArrayBuffer(file);
@@ -207,19 +178,21 @@
         function parseWorkbook(dataBuffer, filename) {
             currentFilename = filename;
             const workbook = XLSX.read(dataBuffer, {type: 'array'});
-            currentData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            
+            // THE FIX IS HERE: {defval: ""} forces it to read empty columns!
+            currentData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {defval: ""});
+            
             closeRightPane();
             processData();
         }
 
-        // --- Process Data & UI ---
         function processData() {
             markerGroup.clearLayers();
             mapMarkers = {};
             document.getElementById('list-section').innerHTML = '';
             
             let displayNum = 1; 
-            let skippedCount = 0; // Track bad rows
+            let skippedCount = 0; 
 
             currentData.forEach((row, dataIndex) => {
                 const locStr = row.Location || row.location;
@@ -227,8 +200,6 @@
                 
                 if (coords) {
                     const currentNum = displayNum; 
-                    
-                    // UPDATED: Now specifically targets "Platform Name" first
                     const title = row["Platform Name"] || row.Field || row.Label || row["OED ID"] || `Location ${currentNum}`;
                     
                     const marker = L.marker([coords.lat, coords.lng], { icon: getMarkerIcon(currentNum, false) });
@@ -245,11 +216,10 @@
 
                     displayNum++;
                 } else {
-                    skippedCount++; // Row had no coordinates or they were invalid
+                    skippedCount++; 
                 }
             });
 
-            // Show warning if rows were hidden
             const warnEl = document.getElementById('skipped-warning');
             if (skippedCount > 0) {
                 warnEl.innerText = `⚠️ ${skippedCount} rows skipped (missing/invalid "Location" coordinates)`;
@@ -272,24 +242,30 @@
             activeIndex = dataIndex;
             mapMarkers[dataIndex].setIcon(getMarkerIcon(number, true));
             document.getElementById(`list-item-${dataIndex}`).classList.add('active');
+            
             map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
+            
             buildRightPane(dataIndex, number);
         }
 
         function buildRightPane(dataIndex, number) {
             const rowData = currentData[dataIndex];
             document.getElementById('header-number').innerText = number;
-            
-            // UPDATED: Header title also targets "Platform Name"
             document.getElementById('header-text').innerText = rowData["Platform Name"] || rowData.Field || rowData.Label || 'Details';
             
             let html = '';
             for (const key in rowData) {
                 const val = rowData[key] || '';
+                
+                // Keep the visual section dividers
                 if (key.startsWith('---')) {
                     html += `<div class="section-divider">${key.replace(/---/g, '').trim()}</div>`;
                     continue; 
                 }
+                
+                // Ignore empty keys (sometimes created by Excel artifacts)
+                if (key.trim() === '') continue;
+
                 const isNotes = key.toLowerCase().includes('note') || key.toLowerCase().includes('action');
                 html += `
                     <div class="data-row">
