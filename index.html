@@ -54,6 +54,9 @@
         .custom-marker { background-color: #2563eb; color: white; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; transition: all 0.2s ease-out; }
         .custom-marker.active { background-color: #dc2626; z-index: 1000 !important; font-size: 16px; border: 3px solid white; }
 
+        /* Logo styling for map markers */
+        .marker-logo { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; background-color: white; }
+
         /* --- RIGHT PANE (Data Editor) --- */
         #right-pane { width: 400px; min-width: 400px; height: 100vh; background: #ffffff; box-shadow: -2px 0 10px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; transform: translateX(100%); display: none; transition: transform 0.3s ease; }
         #right-pane.active { display: flex; transform: translateX(0); }
@@ -96,7 +99,6 @@
             <div class="btn-group">
                 <button class="btn" onclick="requestDatasetLoad('dataset1.xlsx', 'Map 1', this)">Map 1</button>
                 <button class="btn" onclick="requestDatasetLoad('dataset2.xlsx', 'Map 2', this)">Map 2</button>
-                <button class="btn" onclick="requestDatasetLoad('dataset3.xlsx', 'Map 3', this)">Map 3</button>
             </div>
             <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
             <button class="export-btn" onclick="exportData()">💾 Export Meeting Data</button>
@@ -208,9 +210,20 @@
             return null; 
         }
 
-        function getMarkerIcon(number, isActive) {
-            const size = isActive ? 45 : 30; 
-            return L.divIcon({ className: `custom-marker ${isActive ? 'active' : ''}`, html: `<div>${number}</div>`, iconSize: [size, size], iconAnchor: [size/2, size/2] });
+        function getMarkerIcon(number, isActive, logoUrl = null) {
+            const size = isActive ? 50 : 35; // Slightly larger to accommodate logos
+            
+            // Check if we have a logo URL, if yes build an img tag, otherwise show the number
+            const contentHtml = logoUrl 
+                ? `<img src="${logoUrl}" class="marker-logo" alt="${number}" onerror="this.outerHTML='<div>${number}</div>'"/>` 
+                : `<div>${number}</div>`;
+
+            return L.divIcon({ 
+                className: `custom-marker ${isActive ? 'active' : ''}`, 
+                html: contentHtml, 
+                iconSize: [size, size], 
+                iconAnchor: [size/2, size/2] 
+            });
         }
 
         function setActiveIndicator(text, type) {
@@ -297,8 +310,9 @@
                 if (coords) {
                     const currentNum = displayNum; 
                     const title = row["Platform Name"] || row.Field || row.Label || row["OED ID"] || `Location ${currentNum}`;
+                    const logoUrl = row["Logo"] || row["Logo URL"] || null; 
                     
-                    const marker = L.marker([coords.lat, coords.lng], { icon: getMarkerIcon(currentNum, false) });
+                    const marker = L.marker([coords.lat, coords.lng], { icon: getMarkerIcon(currentNum, false, logoUrl) });
                     
                     marker.on('click', () => selectLocation(dataIndex, currentNum, coords));
                     markerGroup.addLayer(marker);
@@ -309,104 +323,4 @@
                     listItem.id = `list-item-${dataIndex}`;
                     listItem.innerHTML = `<div class="list-number">${currentNum}</div><div class="list-text">${title}</div>`;
                     listItem.onclick = () => selectLocation(dataIndex, currentNum, coords);
-                    document.getElementById('list-section').appendChild(listItem);
-
-                    displayNum++;
-                } else {
-                    skippedCount++; 
-                }
-            });
-
-            const warnEl = document.getElementById('skipped-warning');
-            if (skippedCount > 0) {
-                warnEl.innerText = `⚠️ ${skippedCount} rows skipped (missing/invalid "Location" coordinates)`;
-                warnEl.style.display = 'block';
-            } else {
-                warnEl.style.display = 'none';
-            }
-
-            if (displayNum > 1) {
-                map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
-            }
-        }
-
-        function selectLocation(dataIndex, number, coords) {
-            if (activeIndex !== null && mapMarkers[activeIndex]) {
-                const oldNum = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
-                mapMarkers[activeIndex].setIcon(getMarkerIcon(oldNum, false));
-                document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
-            }
-            activeIndex = dataIndex;
-            
-            const targetMarker = mapMarkers[dataIndex];
-            targetMarker.setIcon(getMarkerIcon(number, true));
-            document.getElementById(`list-item-${dataIndex}`).classList.add('active');
-            
-            buildRightPane(dataIndex, number);
-
-            // Smart zoom logic (Cluster awareness vs standard country zoom)
-            const parentCluster = markerGroup.getVisibleParent(targetMarker);
-            if (parentCluster && parentCluster !== targetMarker) {
-                markerGroup.zoomToShowLayer(targetMarker, function() {
-                    map.panTo([coords.lat, coords.lng]);
-                });
-            } else {
-                map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
-            }
-        }
-
-        function buildRightPane(dataIndex, number) {
-            const rowData = currentData[dataIndex];
-            document.getElementById('header-number').innerText = number;
-            document.getElementById('header-text').innerText = rowData["Platform Name"] || rowData.Field || rowData.Label || 'Details';
-            
-            let html = '';
-            for (const key in rowData) {
-                const val = rowData[key] || '';
-                if (key.startsWith('---')) {
-                    html += `<div class="section-divider">${key.replace(/---/g, '').trim()}</div>`;
-                    continue; 
-                }
-                if (key.trim() === '') continue;
-
-                const isNotes = key.toLowerCase().includes('note') || key.toLowerCase().includes('action');
-                html += `
-                    <div class="data-row">
-                        <div class="data-label">${key}</div>
-                        ${isNotes ? `<textarea class="data-input" onchange="updateData(${dataIndex}, '${key}', this.value)">${val}</textarea>` : `<input type="text" class="data-input" value="${val}" onchange="updateData(${dataIndex}, '${key}', this.value)">`}
-                    </div>`;
-            }
-            document.getElementById('right-content').innerHTML = html;
-            document.getElementById('right-pane').classList.add('active');
-        }
-
-        function closeRightPane() {
-            document.getElementById('right-pane').classList.remove('active');
-            if (activeIndex !== null && mapMarkers[activeIndex]) {
-                const num = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
-                mapMarkers[activeIndex].setIcon(getMarkerIcon(num, false));
-                document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
-                activeIndex = null;
-            }
-        }
-
-        function updateData(dataIndex, key, newValue) {
-            currentData[dataIndex][key] = newValue;
-            hasUnsavedChanges = true; 
-            const status = document.getElementById('save-status');
-            status.style.opacity = 1;
-            setTimeout(() => { status.style.opacity = 0; }, 2000);
-            if (key.toLowerCase() === 'location') processData();
-        }
-
-        function exportData() {
-            if (currentData.length === 0) return;
-            const worksheet = XLSX.utils.json_to_sheet(currentData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Meeting Notes");
-            XLSX.writeFile(workbook, "Updated_" + currentFilename);
-            hasUnsavedChanges = false;
-        }
-    </script>
-</body>
-</html>
+                    document.getElementById('list-section').appendChild
