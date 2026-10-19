@@ -1,440 +1,673 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meeting Map Dashboard</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FPSO Opportunity Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --tam: #94a3b8; --sam: #4f46e5; --som: #059669; --out: #cbd5e1;
+    --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --bg: #f8fafc;
+    --navy: #0b1b33;
+  }
+  * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+  .app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
 
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  /* Header */
+  header { background: var(--navy); color: #fff; display: flex; align-items: center; gap: 16px; padding: 12px 20px; }
+  header .mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #22d3ee, #4f46e5); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header .sub { font-size: 12px; color: #94a3b8; }
+  header .spacer { flex: 1; }
+  .seg { display: inline-flex; background: rgba(255,255,255,.08); border-radius: 8px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--navy); }
+  .hbtn { border: 1px solid rgba(255,255,255,.2); background: transparent; color: #fff; padding: 7px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .hbtn.primary { background: #22d3ee; color: var(--navy); border-color: #22d3ee; }
 
-    <style>
-        * { box-sizing: border-box; font-family: 'Inter', sans-serif; }
-        body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; display: flex; }
+  /* Funnel strip: nested stages, each narrower than the one before */
+  .funnel { display: flex; align-items: stretch; gap: 0; padding: 14px 20px; background: #fff; border-bottom: 1px solid var(--line); }
+  .stage { position: relative; padding: 12px 16px 12px 30px; cursor: pointer; color: #fff; background: var(--c);
+           clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 50%, calc(100% - 18px) 100%, 0 100%, 18px 50%); margin-right: -10px; transition: filter .15s, opacity .15s; }
+  .stage:first-child { clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 50%, calc(100% - 18px) 100%, 0 100%); padding-left: 18px; border-radius: 12px 0 0 12px; }
+  .stage:hover { filter: brightness(1.08); }
+  .stage.dim { opacity: .35; }
+  .stage .lab { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; opacity: .9; white-space: nowrap; }
+  .stage .lab em { font-style: normal; font-weight: 500; text-transform: none; letter-spacing: 0; opacity: .85; margin-left: 6px; }
+  .stage .big { font-size: 28px; font-weight: 800; line-height: 1.15; margin-top: 2px; white-space: nowrap; }
+  .stage .big small { font-size: 13px; font-weight: 600; opacity: .85; margin-left: 6px; }
+  .stage .conv { font-size: 11px; font-weight: 600; opacity: .9; margin-top: 2px; white-space: nowrap; }
+  .stage.tam { --c: #64748b; }
+  .stage.sam { --c: var(--sam); }
+  .stage.som { --c: var(--som); }
+  .outside { margin-left: 26px; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 12px 16px; cursor: pointer; min-width: 150px; }
+  .outside.dim { opacity: .35; }
+  .outside .lab { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+  .outside .big { font-size: 28px; font-weight: 800; line-height: 1.15; margin-top: 2px; }
+  .outside .conv { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
-        /* --- LEFT PANE (Controls & List) --- */
-        #left-pane { width: 350px; min-width: 350px; height: 100vh; background: #ffffff; box-shadow: 2px 0 10px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; }
-        
-        #controls-section { padding: 20px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
-        #controls-section h3 { margin: 0 0 10px 0; font-size: 16px; color: #111; }
-        
-        #active-indicator { margin-bottom: 15px; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 600; background: #e5e7eb; color: #374151; border: 1px solid #d1d5db; }
+  /* Logos */
+  .logo { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; border-radius: 50%; background: var(--lc, #334155); color: #fff; font-weight: 800; overflow: hidden; }
+  .logo img { visibility: hidden; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; padding: 12%; }
+  .logo img.ok { visibility: visible; }
+  .logo.sq { border-radius: 10px; }
 
-        .btn-group { display: flex; gap: 8px; margin-bottom: 15px; }
-        .btn { flex: 1; padding: 8px; border: none; border-radius: 6px; background: #e5e7eb; color: #374151; cursor: pointer; font-weight: 500; transition: background 0.2s; }
-        .btn:hover { background: #d1d5db; }
-        .btn.active { background: #2563eb; color: white; }
+  /* Body */
+  .body { display: grid; grid-template-columns: 320px 1fr; min-height: 0; position: relative; }
+  aside { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .filters { padding: 14px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+  .search { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; background: var(--bg); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 11px; font-weight: 600; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: #334155; cursor: pointer; }
+  .chip.on { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .flabel { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .list { overflow-y: auto; flex: 1; }
+  .row { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #f1f5f9; cursor: pointer; }
+  .row:hover { background: var(--bg); }
+  .row.on { background: #eef2ff; box-shadow: inset 3px 0 0 var(--sam); }
+  .row .t { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .row .m { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .row .v { font-size: 12px; font-weight: 700; color: #334155; text-align: right; }
+  .pips { display: flex; gap: 3px; justify-content: flex-end; margin-top: 4px; }
+  .pips i { width: 14px; height: 4px; border-radius: 2px; background: #e2e8f0; }
+  .pips i.f1 { background: var(--tam); } .pips i.f2 { background: var(--sam); } .pips i.f3 { background: var(--som); }
 
-        .export-btn { width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 10px; }
-        .export-btn:hover { background: #15803d; }
-        
-        input[type="file"] { display: block; width: 100%; font-size: 13px; margin-top: 10px; }
-        #skipped-warning { margin-top: 10px; font-size: 12px; color: #dc2626; font-weight: 600; display: none; }
+  #map { height: 100%; width: 100%; }
+  .legend { position: absolute; right: 16px; top: 16px; z-index: 500; background: rgba(255,255,255,.96); border-radius: 12px; padding: 12px 14px; box-shadow: 0 4px 16px rgba(15,23,42,.12); font-size: 11px; display: flex; gap: 12px; align-items: center; }
+  .legend .rows { display: grid; gap: 4px; font-weight: 600; }
+  .legend .rows span { display: flex; align-items: center; gap: 6px; }
+  .legend .rows i { width: 10px; height: 10px; border-radius: 50%; border: 3px solid var(--c); background: #fff; }
+  .legend .note { color: var(--muted); font-weight: 500; margin-top: 4px; }
 
-        /* The Clickable List */
-        #list-section { flex-grow: 1; overflow-y: auto; padding: 10px 0; }
-        .list-item { padding: 12px 20px; border-bottom: 1px solid #f3f4f6; cursor: pointer; display: flex; align-items: center; gap: 12px; }
-        .list-item:hover { background: #f9fafb; }
-        .list-item.active { background: #eff6ff; border-left: 4px solid #2563eb; padding-left: 16px; }
-        .list-number { background: #2563eb; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0; }
-        .list-item.active .list-number { background: #dc2626; }
-        .list-text { font-size: 14px; color: #111; font-weight: 500; }
+  /* Pins */
+  .pin { border-radius: 50%; border: 3.5px solid var(--c); background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.35); display: grid; place-items: center; transition: transform .15s; overflow: hidden; }
+  .pin.out { border-style: dashed; border-color: #94a3b8; }
+  .pin.sel { outline: 4px solid rgba(34,211,238,.6); transform: scale(1.25); }
+  .pin .logo { width: 100%; height: 100%; }
+  .pin .logo img { padding: 14%; }
+  .leaflet-tooltip.tip { border: 0; border-radius: 8px; box-shadow: 0 6px 20px rgba(15,23,42,.18); padding: 8px 10px; }
+  .tip b { font-size: 12px; } .tip div { font-size: 11px; color: var(--muted); }
 
-        /* --- CENTER MAP --- */
-        #map-container { flex-grow: 1; height: 100vh; position: relative; }
-        #map { height: 100%; width: 100%; z-index: 1; }
+  /* Detail card */
+  .detail { position: absolute; top: 16px; right: 16px; bottom: 16px; width: 370px; z-index: 600; background: #fff; border-radius: 14px; box-shadow: 0 12px 40px rgba(15,23,42,.22); display: none; flex-direction: column; overflow: hidden; }
+  .detail.on { display: flex; }
+  .dh { padding: 16px 18px; background: var(--navy); color: #fff; }
+  .dh .top { display: flex; gap: 12px; align-items: center; }
+  .dh h2 { margin: 0; font-size: 17px; line-height: 1.25; }
+  .dh .loc { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+  .dh .x { margin-left: auto; align-self: start; background: none; border: 0; color: #94a3b8; font-size: 22px; cursor: pointer; line-height: 1; }
+  .flab { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #94a3b8; margin: 16px 0 6px; display: flex; justify-content: space-between; }
+  .flab kbd { font-family: inherit; font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .ladder { display: flex; }
+  .ladder button { flex: 1; border: 0; padding: 9px 0 9px 8px; margin-right: -8px; font-weight: 700; font-size: 12px; cursor: pointer; background: rgba(255,255,255,.1); color: #94a3b8;
+                   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%); }
+  .ladder button:first-child { clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%); border-radius: 8px 0 0 8px; padding-left: 0; }
+  .ladder button:hover { color: #fff; }
+  .ladder button.f { background: var(--c); color: #fff; }
+  .ladder button.out.f { background: #475569; }
+  .ticks { display: flex; gap: 14px; font-size: 11px; color: #cbd5e1; margin-top: 8px; }
+  .ticks b { color: #fff; }
+  .db { padding: 16px 18px; overflow-y: auto; flex: 1; }
+  .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .party { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+  .party .k { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
+  .party .n { font-size: 13px; font-weight: 700; line-height: 1.2; }
+  .party .n.tbd { color: var(--muted); font-weight: 500; font-style: italic; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+  .tile .k { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
+  .tile .val { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .status { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+  .sect { margin: 16px 0 8px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13px; resize: vertical; }
+  details { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 10px; font-size: 12px; }
+  details summary { cursor: pointer; font-weight: 600; color: #334155; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 8px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .df { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); }
+  .df button { border: 0; background: var(--navy); color: #fff; padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; }
 
-        .custom-marker { background-color: #2563eb; color: white; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; transition: all 0.2s ease-out; }
-        .custom-marker.active { background-color: #dc2626; z-index: 1000 !important; font-size: 16px; border: 3px solid white; }
+  /* Compare mode */
+  .picks { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pick { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.08); border-radius: 8px; padding: 4px 4px 4px 10px; font-size: 11px; color: #94a3b8; }
+  .pick select { border: 0; border-radius: 6px; background: #fff; color: var(--navy); font-size: 12px; font-weight: 600; padding: 6px 8px; max-width: 220px; cursor: pointer; }
+  .dirty { color: #fbbf24; font-weight: 600; }
+  .cmp-only { display: none; }
+  body.cmp .cmp-only { display: flex; }
+  .delta { display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,.18); padding: 2px 7px; border-radius: 999px; }
+  .outside .delta { background: #f1f5f9; color: #334155; }
+  .pinwrap { position: relative; }
+  .chg { position: absolute; top: -7px; right: -10px; font-size: 9px; font-weight: 800; line-height: 1; padding: 3px 5px; border-radius: 999px; color: #fff; background: var(--k); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(15,23,42,.3); white-space: nowrap; }
+  .pin.gone { opacity: .6; filter: grayscale(1); border-style: dashed; border-color: #94a3b8; }
+  .row .cl2 { font-size: 11px; font-weight: 600; margin-top: 3px; color: var(--k); }
+  .row.gone .t { text-decoration: line-through; color: var(--muted); }
+  .since { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; background: #fffbeb; }
+  .since.none { background: var(--bg); color: var(--muted); font-size: 12px; }
+  .since .h { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: #92400e; margin-bottom: 6px; }
+  .since .d { display: grid; grid-template-columns: 110px 1fr; gap: 6px; font-size: 12px; padding: 3px 0; }
+  .since .d span:first-child { color: var(--muted); }
+  .since s { color: var(--muted); }
+  .gonebar { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: rgba(239,68,68,.15); color: #fecaca; font-size: 12px; font-weight: 600; }
 
-        /* --- RIGHT PANE (Data Editor) --- */
-        #right-pane { width: 400px; min-width: 400px; height: 100vh; background: #ffffff; box-shadow: -2px 0 10px rgba(0,0,0,0.1); z-index: 1000; display: flex; flex-direction: column; transform: translateX(100%); display: none; transition: transform 0.3s ease; }
-        #right-pane.active { display: flex; transform: translateX(0); }
+  /* Presentation mode */
+  body.present aside, body.present .detail { display: none !important; }
+  body.present .body { grid-template-columns: 1fr; }
 
-        #right-header { padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb; }
-        #right-title { margin: 0; font-size: 18px; color: #111; display: flex; align-items: center; gap: 10px; }
-        .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; }
-        
-        #right-content { flex-grow: 1; overflow-y: auto; padding: 20px; }
-        
-        .data-row { margin-bottom: 14px; }
-        .data-label { font-size: 11px; text-transform: uppercase; color: #6b7280; font-weight: 700; margin-bottom: 6px; }
-        .data-input { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; color: #111; background: #f9fafb; }
-        textarea.data-input { resize: vertical; min-height: 80px; }
-        .data-input:focus { outline: none; border-color: #2563eb; background: #fff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
-        
-        .section-divider { margin: 25px 0 15px 0; padding-bottom: 5px; border-bottom: 2px solid #e5e7eb; font-size: 12px; font-weight: bold; color: #4b5563; text-transform: uppercase; letter-spacing: 1px; }
-        #save-status { background: #10b981; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; }
-
-        /* Custom Modal Overlay styles */
-        #modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 9999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
-        .modal-box { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); width: 400px; text-align: center; }
-        .modal-box h3 { margin: 0 0 15px 0; color: #111; font-size: 18px; }
-        .modal-box p { color: #4b5563; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
-        .modal-btn-group { display: flex; gap: 10px; justify-content: center; }
-        .modal-btn { padding: 10px 20px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .modal-btn-cancel { background: #e5e7eb; color: #374151; }
-        .modal-btn-cancel:hover { background: #d1d5db; }
-        .modal-btn-danger { background: #dc2626; color: white; }
-        .modal-btn-danger:hover { background: #b91c1c; }
-    </style>
+  /* ---------- Responsive ---------- */
+  /* Tablets and narrow windows: header wraps, funnel scrolls sideways, map above the list */
+  @media (max-width: 900px) {
+    html, body { overflow-x: hidden; overflow-y: auto; height: auto; }
+    .app { height: auto; min-height: 100vh; }
+    header { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+    header .spacer { display: none; }
+    .funnel { overflow-x: auto; padding: 10px 14px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+    .stage, .outside { scroll-snap-align: start; flex-shrink: 0; }
+    .stage { min-width: 200px; }
+    .outside { min-width: 150px; }
+    .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; }
+    .filters { grid-template-columns: minmax(0, 1fr); }
+    aside, .filters > * { min-width: 0; }
+    .body > div:nth-child(2) { order: -1; }
+    aside { border-right: 0; border-top: 1px solid var(--line); }
+    .list { overflow: visible; }
+    .legend { display: none; }
+    .detail { position: fixed; inset: auto 0 0 0; top: 12vh; width: auto; border-radius: 16px 16px 0 0; z-index: 1200; }
+  }
+  /* Phones */
+  @media (max-width: 600px) {
+    header { gap: 8px; }
+    header h1 { font-size: 15px; }
+    header .sub { font-size: 11px; }
+    .picks { order: 5; width: 100%; }
+    .pick { flex: 1 1 100%; justify-content: space-between; }
+    .pick select { flex: 1; max-width: none; padding: 8px; }
+    #present { display: none; }
+    #export { margin-left: auto; }
+    .stage { min-width: 168px; padding: 10px 14px 10px 26px; }
+    .stage:first-child { padding-left: 14px; }
+    .stage .big, .outside .big { font-size: 24px; }
+    .stage .lab em { display: none; }
+    .body { grid-template-rows: 55vh auto; }
+    .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    .chip { flex-shrink: 0; padding: 7px 11px; }
+    .row { padding: 12px 14px; }
+    .detail { top: 6vh; }
+    .parties, .tiles { grid-template-columns: 1fr; }
+    .ladder button { padding: 11px 0 11px 8px; }
+  }
+</style>
 </head>
 <body>
+<div class="app">
+  <header>
+    <div class="mark"></div>
+    <div>
+      <h1>FPSO Opportunity Map</h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="picks">
+      <label class="pick"><span>List</span><select id="cur"></select></label>
+      <label class="pick"><span>Compare with</span><select id="cmp"></select></label>
+      <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
+    </div>
+    <button class="hbtn" id="present">▶ Present</button>
+    <button class="hbtn primary" id="export">⬇ Export</button>
+  </header>
 
-    <!-- LEFT PANE -->
-    <div id="left-pane">
-        <div id="controls-section">
-            <h3>Map Datasets</h3>
-            <div id="active-indicator">Status: Waiting for data...</div>
-            <div class="btn-group">
-                <button class="btn" onclick="requestDatasetLoad('dataset1.xlsx', 'Map 1', this)">Map 1</button>
-                <button class="btn" onclick="requestDatasetLoad('dataset2.xlsx', 'Map 2', this)">Map 2</button>
-            </div>
-            <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" />
-            <button class="export-btn" onclick="exportData()">💾 Export Meeting Data</button>
-            <div id="skipped-warning"></div>
+  <section class="funnel" id="funnel"></section>
+
+  <div class="body">
+    <aside>
+      <div class="filters">
+        <input class="search" id="q" placeholder="Search project, operator, country…">
+        <div class="flabel">Region</div>
+        <div class="chips" id="regions"></div>
+        <div class="flabel">Status</div>
+        <div class="chips" id="statuses"></div>
+        <div class="flabel cmp-only">Changes since previous list</div>
+        <div class="chips cmp-only" id="changes"></div>
+      </div>
+      <div class="list" id="list"></div>
+    </aside>
+    <div style="position:relative;min-height:0">
+      <div id="map"></div>
+      <div class="detail" id="detail"></div>
+    </div>
+    <div class="legend">
+      <svg width="58" height="58" viewBox="0 0 58 58" aria-hidden="true">
+        <circle cx="29" cy="29" r="28" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5"/>
+        <circle cx="29" cy="35" r="19" fill="#c7d2fe" stroke="#4f46e5" stroke-width="1.5"/>
+        <circle cx="29" cy="41" r="10" fill="#a7f3d0" stroke="#059669" stroke-width="1.5"/>
+        <text x="29" y="13" text-anchor="middle" font-size="7" font-weight="700" fill="#475569">TAM</text>
+        <text x="29" y="27" text-anchor="middle" font-size="7" font-weight="700" fill="#3730a3">SAM</text>
+        <text x="29" y="44" text-anchor="middle" font-size="7" font-weight="700" fill="#065f46">SOM</text>
+      </svg>
+      <div>
+        <div class="rows">
+          <span><i style="--c:var(--som)"></i>Reached SOM</span>
+          <span><i style="--c:var(--sam)"></i>Reached SAM</span>
+          <span><i style="--c:var(--tam)"></i>TAM only</span>
+          <span><i style="--c:#94a3b8;border-style:dashed"></i>Outside TAM</span>
         </div>
-        <div id="list-section"></div>
+        <div class="note">Ring = furthest stage · logo = operator<br>Pin size = EPCI capex</div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- CENTER MAP -->
-    <div id="map-container">
-        <div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// Funnel stage = how far down TAM → SAM → SOM a project gets. 0 = outside TAM.
+const STAGES = ['Out', 'TAM', 'SAM', 'SOM'];
+const COLOR = ['#94a3b8', '#94a3b8', '#4f46e5', '#059669'];
+const STAGE_LABEL = ['Outside TAM', 'TAM only', 'Reached SAM', 'Reached SOM'];
+
+// Operator / contractor → website domain, used to fetch a logo. A "Logo" column in the sheet overrides this.
+const DOMAINS = {
+  'Inpex': 'inpex.com', 'Petrobras': 'petrobras.com.br', 'Equinor': 'equinor.com', 'Shell': 'shell.com',
+  'Woodside': 'woodside.com', 'Eni': 'eni.com', 'Santos': 'santos.com', 'ExxonMobil': 'exxonmobil.com',
+  'Azule Energy': 'azule-energy.com', 'TotalEnergies': 'totalenergies.com', 'Jadestone': 'jadestone-energy.com',
+  'Karoon': 'karoonenergy.com.au', 'Mubadala': 'mubadalaenergy.com', 'Altera Infrastructure': 'alterainfra.com', 'Ping (Dagang Nexchange)': 'pingpetroleum.com',
+  'SBM Offshore': 'sbmoffshore.com', 'MODEC': 'modec.com', 'BW Offshore': 'bwoffshore.com', 'Yinson': 'yinson.com'
+};
+const logoSrcs = (name, override) => override ? [override] : DOMAINS[name]
+  ? [`https://icon.horse/icon/${DOMAINS[name]}`, `https://www.google.com/s2/favicons?domain=${DOMAINS[name]}&sz=128`] : [];
+// Try each logo source in turn; anything 16px or smaller is usually a generic placeholder, so fall back to initials.
+// The outcome per company is remembered, so redraws reuse the working URL instead of re-fetching.
+const logoCache = {};
+function logoNext(img, ok) {
+  if (ok && img.naturalWidth > 16) { logoCache[img.dataset.key] = img.src; return img.classList.add('ok'); }
+  const rest = JSON.parse(img.dataset.rest || '[]');
+  if (!rest.length) { logoCache[img.dataset.key] = null; return img.remove(); }
+  img.dataset.rest = JSON.stringify(rest.slice(1)); img.src = rest[0];
+}
+const initials = n => String(n).replace(/\(.*?\)/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+const hue = n => [...String(n)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+function logo(name, px, cls = '', override) {
+  if (!name) return '';
+  const key = override || name, known = logoCache[key];
+  const [first, ...rest] = logoSrcs(name, override);
+  const img = known ? `<img class="ok" src="${esc(known)}" alt="">`
+    : known === null || !first ? ''
+    : `<img src="${esc(first)}" alt="" data-key="${esc(key)}" data-rest='${esc(JSON.stringify(rest))}' onload="logoNext(this, true)" onerror="logoNext(this, false)">`;
+  return `<span class="logo ${cls}" title="${esc(name)}" style="width:${px}px;height:${px}px;font-size:${Math.round(px * .38)}px;--lc:hsl(${hue(name)} 45% 38%)">${esc(initials(name))}${img}</span>`;
+}
+
+const map = L.map('map', { zoomControl: false, worldCopyJump: true, minZoom: 1, maxZoom: 9, markerZoomAnimation: false }).setView([10, 20], 2);
+L.control.zoom({ position: 'topleft' }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Tiles © Esri', maxZoom: 9
+}).addTo(map);
+
+// No clustering: pins that would overlap are pushed apart so each stays visible,
+// with a thin leader line back to the true location. Pins never drift more than
+// MAX_SHIFT px from where they belong, so in very crowded spots they overlap instead.
+const pinLayer = L.layerGroup().addTo(map), leaderLayer = L.layerGroup().addTo(map);
+const MAX_SHIFT = 70, GAP = 4;
+function layoutPins() {
+  leaderLayer.clearLayers();
+  const pins = pinLayer.getLayers().map(m => {
+    const at = map.latLngToLayerPoint(m.options.p.ll);
+    return { m, at, x: at.x, y: at.y, r: m.options.size / 2 };
+  });
+  for (let it = 0; it < 80; it++) {
+    for (let i = 0; i < pins.length; i++) for (let j = i + 1; j < pins.length; j++) {
+      const A = pins[i], Bp = pins[j];
+      let dx = Bp.x - A.x, dy = Bp.y - A.y, d = Math.hypot(dx, dy);
+      const need = A.r + Bp.r + GAP;
+      if (d >= need) continue;
+      if (d < 0.01) { const ang = (i * 7 + j * 13) % 360 * Math.PI / 180; dx = Math.cos(ang); dy = Math.sin(ang); d = 1; }
+      const push = (need - d) / 2;
+      A.x -= dx / d * push; A.y -= dy / d * push; Bp.x += dx / d * push; Bp.y += dy / d * push;
+    }
+    pins.forEach(q => {                        // gentle pull home + hard cap on drift
+      q.x += (q.at.x - q.x) * .04; q.y += (q.at.y - q.y) * .04;
+      const ox = q.x - q.at.x, oy = q.y - q.at.y, o = Math.hypot(ox, oy);
+      if (o > MAX_SHIFT) { q.x = q.at.x + ox / o * MAX_SHIFT; q.y = q.at.y + oy / o * MAX_SHIFT; }
+    });
+  }
+  pins.forEach(q => {
+    const pos = map.layerPointToLatLng([q.x, q.y]);
+    q.m.setLatLng(pos);
+    if (Math.hypot(q.x - q.at.x, q.y - q.at.y) > q.r * .6) {
+      const c = COLOR[q.m.options.p.stage];
+      L.polyline([q.m.options.p.ll, pos], { color: c, weight: 1.5, opacity: .8, interactive: false }).addTo(leaderLayer);
+      L.circleMarker(q.m.options.p.ll, { radius: 3, color: '#fff', weight: 1, fillColor: c, fillOpacity: 1, interactive: false }).addTo(leaderLayer);
+    }
+  });
+}
+map.on('zoomend', layoutPins);
+map.on('resize', () => render());   // rotating a phone or resizing the window re-sizes pins
+// Leaflet only measures its box on window resize; layout changes (phone layout, present mode) need a nudge too.
+let fitPending = true;
+new ResizeObserver(() => { map.invalidateSize(); if (fitPending && current.length) { fitPending = false; fitAll(); } layoutPins(); }).observe(document.getElementById('map'));
+const fitAll = () => { const v = visible(), pad = innerWidth < 600 ? 24 : 60; if (v.length) map.fitBounds(L.latLngBounds(v.map(p => p.ll)), { padding: [pad, pad] }); };
+
+let projects = [], sel = null, filt = { region: null, status: null, stage: null, q: '' };
+
+const yes = v => String(v || '').trim().toLowerCase().startsWith('y');
+// dataset1 keeps historical SAM/SOM plus current "is SAM?"/"is SOM?" columns; the current ones win once filled.
+const filled = v => String(v ?? '').trim() !== '';
+function stageOf(r) {
+  if (filled(r['is SAM?']) || filled(r['is SOM?'])) return yes(r['is SOM?']) ? 3 : yes(r['is SAM?']) ? 2 : 1;
+  if (yes(r.SOM)) return 3;
+  if (yes(r.SAM)) return 2;
+  if (!('TAM' in r) || yes(r.TAM)) return 1;   // sheets with no TAM column: every listed project is in TAM
+  return 0;
+}
+function parseLoc(s) {
+  const m = String(s || '').match(/^\s*(\d+)\s+(\d+)\s*([\d.]+)?\s*([NS])\s+(\d+)\s+(\d+)\s*([\d.]+)?\s*([EW])\s*$/i);
+  if (!m) return null;
+  let lat = +m[1] + m[2] / 60 + (+m[3] || 0) / 3600, lng = +m[5] + m[6] / 60 + (+m[7] || 0) / 3600;
+  if (/s/i.test(m[4])) lat = -lat; if (/w/i.test(m[8])) lng = -lng;
+  return [lat, lng];
+}
+const money = v => !v ? '—' : v >= 1000 ? `$${(v / 1000).toFixed(1)}B` : `$${Math.round(v)}M`;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const shortRegion = r => String(r || '—').replace('Latin America and the Caribbean', 'LatAm');
+
+function toProject(r, i) {
+  return {
+    i, r, id: String(r['OED ID'] || ''), ll: parseLoc(r.Location),
+    name: r.Label || r['Platform Name'] || `Project ${i + 1}`,
+    country: r.Country, region: shortRegion(r.WMSuperRegion || r['WM Region']),
+    status: String(r['Facility Status'] || '—').trim(),
+    operator: r['Operator Group'] || r.Operator || '',
+    contractor: r['EPCI Floater contractor'] || r['EPCI FLOATER-TOPSIDE Contractor'] || '',
+    operatorLogo: r['Operator Logo'] || r.Logo || '', contractorLogo: r['Contractor Logo'] || '',
+    award: r['Hull award year'] || r['WM Award date'] || '—',
+    install: r['Installation year'] || r['WM estimated Installation date'] || '—',
+    capex: +r['EPCI Capex'] || 0,
+    depth: r['Water Depth Group (M)'] || r['Water Depth'] || '—',
+    build: r['New Build Hull'] || r['Contract Type'] || '—',
+    product: r.product || r.Product || '—',
+    stage: stageOf(r), notes: r.Notes || ''
+  };
+}
+// Lists published next to this page. Anything else can be loaded with "Upload Excel file…".
+const DATASETS = [
+  { file: 'dataset2.xlsx', label: 'Map 2 · dataset2.xlsx' },
+  { file: 'dataset1.xlsx', label: 'Map 1 · dataset1.xlsx' }
+];
+const UPLOAD = '__upload__';
+// src is a file name next to this page, or a File the user picked.
+async function readSheet(src) {
+  let buf;
+  if (typeof src === 'string') {
+    const res = await fetch(src + '?t=' + Date.now());   // skip stale caches after a new upload to GitHub
+    if (!res.ok) throw new Error(`${src} not found`);
+    buf = await res.arrayBuffer();
+  } else buf = await src.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+}
+
+// Compare: projects are matched across lists by OED ID.
+let current = [], prev = null, prevById = {}, prevFile = '';
+const FIELDS = [['stage', 'Funnel stage', v => STAGES[v]], ['status', 'Status'], ['award', 'Hull award'],
+  ['install', 'First oil / install'], ['operator', 'Operator'], ['contractor', 'FPSO contractor'], ['capex', 'EPCI capex', money]];
+const blank = v => v === '' || v === '—' || v === 0 || v == null;
+function diffOf(p) {
+  const o = prevById[p.id];
+  if (!o) return [];
+  return FIELDS.filter(([k]) => String(o[k]).trim() !== String(p[k]).trim() && (k === 'stage' || (!blank(o[k]) && !blank(p[k]))))
+    .map(([k, label, fmt = v => v]) => ({ k, label, from: fmt(o[k]), to: fmt(p[k]), raw: [o[k], p[k]] }));
+}
+// The one badge a pin/row shows, most important first.
+function changeOf(p) {
+  if (!prev) return null;
+  if (p.dropped) return { kind: 'dropped', badge: 'DROPPED', color: '#ef4444', text: 'Not in current list' };
+  if (!prevById[p.id]) return { kind: 'new', badge: 'NEW', color: '#0ea5e9', text: 'New since previous list' };
+  const d = diffOf(p), by = k => d.find(x => x.k === k);
+  if (by('stage')) { const up = by('stage').raw[1] > by('stage').raw[0];
+    return { kind: 'stage', badge: up ? '▲ ' + STAGES[p.stage] : '▼ ' + STAGES[p.stage], color: up ? '#059669' : '#dc2626', text: `Stage ${by('stage').from} → ${by('stage').to}` }; }
+  const yr = by('award') || by('install');
+  if (yr) { const n = yr.raw[1] - yr.raw[0];
+    return { kind: 'dates', badge: (n > 0 ? '+' : '−') + Math.abs(n) + 'y', color: n > 0 ? '#d97706' : '#0d9488', text: `${yr.label} ${yr.from} → ${yr.to}` }; }
+  if (d.length) return { kind: 'other', badge: '●', color: '#64748b', text: d.map(x => x.label).join(', ') + ' changed' };
+  return null;
+}
+
+let currentFile = '', originalRows = [], dirty = false;
+function setSub() {
+  document.getElementById('sub').innerHTML = `${current.length} projects · ${esc(currentFile)}${dirty ? ' · <span class="dirty">unsaved edits, Export to keep them</span>' : ''}`;
+}
+function markDirty() { if (!dirty) { dirty = true; setSub(); } }
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+async function load(src) {
+  const name = typeof src === 'string' ? src : src.name;
+  try { originalRows = await readSheet(src); }
+  catch (err) {
+    document.getElementById('sub').textContent = location.protocol === 'file:'
+      ? 'Your browser blocks reading files when this page is opened from disk. Pick "Upload Excel file…" under List.'
+      : `Couldn't load ${name}.`;
+    return;
+  }
+  currentFile = name; dirty = false;
+  current = originalRows.map(toProject).filter(p => p.ll);
+  current.forEach(p => p.stage0 = p.stage);
+  projects = current;
+  filt = { region: null, status: null, stage: null, q: '', change: null };
+  document.getElementById('q').value = '';
+  setSub();
+  if (prev) await setCompare(prevSrc);   // keep comparing against the same previous list
+  closeD(); buildChips(); render(true);
+  // Deep link: index.html#Abadi opens that project's card
+  const hit = location.hash && projects.find(p => p.name.toLowerCase().includes(decodeURIComponent(location.hash.slice(1).split('&')[0]).toLowerCase()));
+  if (hit) select(hit);
+}
+let prevSrc = null;
+async function setCompare(src) {
+  prevSrc = src || null;
+  prevFile = !src ? '' : typeof src === 'string' ? src : src.name;
+  if (!src) { prev = null; prevById = {}; projects = current; }
+  else {
+    try { prev = (await readSheet(src)).map((r, i) => toProject(r, 1000 + i)).filter(p => p.ll); }
+    catch (err) { alert(`Couldn't load ${prevFile} to compare.`); return setCompare(null); }
+    prevById = Object.fromEntries(prev.map(p => [p.id, p]));
+    const ids = new Set(current.map(p => p.id));
+    projects = [...current, ...prev.filter(p => !ids.has(p.id)).map(p => ({ ...p, dropped: true }))];
+  }
+  document.body.classList.toggle('cmp', !!src);
+  filt.change = null; buildChips(); render();
+  if (sel) select(projects.find(p => p.id === sel.id) || current[0]);
+}
+
+function chipRow(el, key, values) {
+  el.innerHTML = ['All', ...values].map(v => `<button class="chip ${(!filt[key] && v === 'All') || filt[key] === v ? 'on' : ''}" data-v="${esc(v)}">${esc(v)}</button>`).join('');
+  el.onclick = e => { const v = e.target.dataset.v; if (v === undefined) return; filt[key] = v === 'All' ? null : v; buildChips(); render(); };
+}
+function buildChips() {
+  const uniq = k => [...new Set(projects.map(p => p[k]))].filter(Boolean).sort();
+  chipRow(document.getElementById('regions'), 'region', uniq('region'));
+  chipRow(document.getElementById('statuses'), 'status', uniq('status'));
+  if (prev) {
+    const n = k => projects.filter(p => changeOf(p)?.kind === k).length;
+    const opts = [['new', 'New'], ['dropped', 'Dropped'], ['stage', 'Stage moved'], ['dates', 'Dates moved'], ['other', 'Other']];
+    const el = document.getElementById('changes');
+    el.innerHTML = [['', 'All'], ...opts.filter(([k]) => n(k))].map(([k, l]) => `<button class="chip ${(filt.change || '') === k ? 'on' : ''}" data-v="${k}">${l}${k ? ' · ' + n(k) : ''}</button>`).join('');
+    el.onclick = e => { const v = e.target.dataset.v; if (v === undefined) return; filt.change = v || null; buildChips(); render(); };
+  }
+}
+
+// Stage filter is "at least": clicking SAM shows everything that reached SAM, SOM included.
+const inScope = p => (!filt.region || p.region === filt.region) && (!filt.status || p.status === filt.status);
+const live = p => !p.dropped;
+const visible = () => projects.filter(p => inScope(p) &&
+  (filt.stage === null || (filt.stage === 0 ? p.stage === 0 : p.stage >= filt.stage)) &&
+  (!filt.change || changeOf(p)?.kind === filt.change) &&
+  (!filt.q || [p.name, p.operator, p.contractor, p.country].join(' ').toLowerCase().includes(filt.q)));
+
+function render(fit) {
+  const all = projects.filter(p => live(p) && inScope(p));
+  const prevAll = prev ? prev.filter(inScope) : null;
+  const delta = (k, n) => {
+    if (!prevAll) return '';
+    const d = n - (k === 0 ? prevAll.filter(p => p.stage === 0) : prevAll.filter(p => p.stage >= k)).length;
+    return `<div class="delta">${d > 0 ? '▲ ' + d : d < 0 ? '▼ ' + -d : '±0'} vs previous</div>`;
+  };
+  const reached = k => all.filter(p => p.stage >= k);
+  const cap = set => set.reduce((s, p) => s + p.capex, 0);
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const [tam, sam, som, out] = [reached(1), reached(2), reached(3), all.filter(p => p.stage === 0)];
+  const stageCard = (k, cls, title, sub, set, conv) => `
+    <div class="stage ${cls} ${filt.stage !== null && filt.stage !== k ? 'dim' : ''}" data-s="${k}" style="flex:${[0, 1.3, 1.1, .9][k]}">
+      <div class="lab">${title}<em>${sub}</em></div>
+      <div class="big">${set.length}<small>${money(cap(set))}</small></div>
+      <div class="conv">${conv}</div>${delta(k, set.length)}</div>`;
+  document.getElementById('funnel').innerHTML =
+    stageCard(1, 'tam', 'TAM', 'Total addressable', tam, `${pct(tam.length, all.length)} of listed projects`) +
+    stageCard(2, 'sam', 'SAM', 'Serviceable', sam, `${pct(sam.length, tam.length)} of TAM · ${pct(cap(sam), cap(tam))} of capex`) +
+    stageCard(3, 'som', 'SOM', 'Obtainable', som, `${pct(som.length, sam.length)} of SAM · ${pct(cap(som), cap(sam))} of capex`) +
+    `<div class="outside ${filt.stage !== null && filt.stage !== 0 ? 'dim' : ''}" data-s="0">
+       <div class="lab">Outside TAM</div><div class="big">${out.length}</div><div class="conv">listed but not addressable</div>${delta(0, out.length)}</div>`;
+
+  const vis = visible();
+  document.getElementById('list').innerHTML = vis.sort((a, b) => !!a.dropped - !!b.dropped || b.stage - a.stage || b.capex - a.capex).map(p => { const c = changeOf(p); return `
+    <div class="row ${sel === p ? 'on' : ''} ${p.dropped ? 'gone' : ''}" data-i="${p.i}">
+      ${logo(p.operator || p.name, 30)}
+      <div><div class="t">${esc(p.name)}</div><div class="m">${esc(p.country)} · ${esc(p.operator || '—')} · ${esc(p.status)}</div>${c ? `<div class="cl2" style="--k:${c.color}">${esc(c.text)}</div>` : ''}</div>
+      <div><div class="v">${money(p.capex)}</div><div class="pips" title="${STAGE_LABEL[p.stage]}">${[1, 2, 3].map(k => `<i class="${p.stage >= k ? 'f' + k : ''}"></i>`).join('')}</div></div>
+    </div>`; }).join('');
+
+  pinLayer.clearLayers();
+  const maxCap = Math.max(...projects.map(p => p.capex), 1);   // dropped projects from older lists may have no capex
+  vis.forEach(p => {
+    const s = Math.round((innerWidth < 600 ? .72 : 1) * (30 + Math.sqrt(p.capex / maxCap) * 20));
+    const m = L.marker(p.ll, { p, size: s, zIndexOffset: sel === p ? 1000 : p.capex, icon: L.divIcon({ className: '', iconSize: [s, s],
+      html: `<div class="pinwrap" style="width:${s}px;height:${s}px"><div class="pin ${p.stage ? '' : 'out'} ${p.dropped ? 'gone' : ''} ${sel === p ? 'sel' : ''}" style="width:${s}px;height:${s}px;--c:${COLOR[p.stage]}">${logo(p.operator || p.name, s - 7)}</div>${(c => c ? `<span class="chg" style="--k:${c.color}">${c.badge}</span>` : '')(changeOf(p))}</div>` }) });
+    m.bindTooltip(`<b>${esc(p.name)}</b><div>${esc(p.operator)} · ${STAGE_LABEL[p.stage]} · ${money(p.capex)}</div>${changeOf(p) ? `<div style="color:${changeOf(p).color};font-weight:600">${esc(changeOf(p).text)}</div>` : ''}`, { className: 'tip', direction: 'top', offset: [0, -s / 2] });
+    m.on('click', () => select(p));
+    pinLayer.addLayer(m); p.m = m;
+  });
+  if (fit) fitAll();   // zoomend re-runs the layout
+  layoutPins();
+}
+
+function select(p) {
+  sel = p; render();
+  const tile = (k, v) => `<div class="tile"><div class="k">${k}</div><div class="val">${v}</div></div>`;
+  const party = (k, name, override) => `<div class="party">${name ? logo(name, 38, 'sq', override) : '<span class="logo sq" style="width:38px;height:38px;background:#f1f5f9;color:#94a3b8;font-size:16px">?</span>'}
+      <div><div class="k">${k}</div><div class="n ${name ? '' : 'tbd'}">${esc(name || 'Not yet awarded')}</div></div></div>`;
+  const extra = Object.entries(p.r).filter(([k, v]) => v !== '' && !k.startsWith('---')).map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
+  document.getElementById('detail').innerHTML = `
+    <div class="dh">
+      <div class="top">${logo(p.operator || p.name, 44, 'sq', p.operatorLogo)}
+        <div><h2>${esc(p.name)}</h2><div class="loc">${esc(p.country)} · ${esc(p.region)}</div></div>
+        <button class="x" onclick="closeD()">×</button></div>
+      ${p.dropped ? `<div class="gonebar">Dropped: this project was in the previous list but is not in the current one. Details below are from the previous list.</div>` : `
+      <div class="flab"><span>Furthest funnel stage</span><kbd>keys 0–3</kbd></div>
+      <div class="ladder">${STAGES.map((n, k) => `<button class="${k === 0 ? 'out' : ''} ${(k === 0 ? p.stage === 0 : p.stage >= k) ? 'f' : ''}" style="--c:${COLOR[k] === '#94a3b8' ? '#64748b' : COLOR[k]}" onclick="setStage(${k})">${n}</button>`).join('')}</div>
+      <div class="ticks">${['TAM', 'SAM', 'SOM'].map((n, j) => `<span>${n} <b>${p.stage > j ? '✓' : '—'}</b></span>`).join('')}</div>`}
     </div>
-
-    <!-- RIGHT PANE -->
-    <div id="right-pane">
-        <div id="right-header">
-            <h2 id="right-title"><span id="header-number" class="list-number"></span><span id="header-text">Details</span></h2>
-            <button class="close-btn" onclick="closeRightPane()">&times;</button>
-        </div>
-        <div id="save-status">💾 Live changes saved</div>
-        <div id="right-content"></div>
+    <div class="db">
+      ${prev && !p.dropped ? (prevById[p.id] ? (d => d.length
+        ? `<div class="since"><div class="h">Since previous list</div>${d.map(x => `<div class="d"><span>${esc(x.label)}</span><span><s>${esc(x.from)}</s> → <b>${esc(x.to)}</b></span></div>`).join('')}</div>`
+        : `<div class="since none">No changes since previous list.</div>`)(diffOf(p))
+        : `<div class="since" style="background:#e0f2fe"><div class="h" style="color:#0369a1">New since previous list</div><div style="font-size:12px">Not in ${esc(prevFile)}.</div></div>`) : ''}
+      <div class="parties">${party('Operator', p.operator, p.operatorLogo)}${party('FPSO contractor', p.contractor, p.contractorLogo)}</div>
+      <span class="status">${esc(p.status)}</span>
+      <div class="tiles" style="margin-top:12px">
+        ${tile('EPCI capex', money(p.capex))}${tile('Hull award', esc(p.award))}
+        ${tile('First oil / install', esc(p.install))}${tile('Water depth (m)', esc(p.depth))}
+        ${tile('Product', esc(p.product))}${tile('Hull', esc(p.build))}
+      </div>
+      <div class="sect">Meeting notes</div>
+      <textarea placeholder="Why this stage? Next action, owner…" oninput="sel.notes = this.value; markDirty()">${esc(p.notes)}</textarea>
+      <details><summary>All source fields</summary><div class="kv">${extra}</div></details>
     </div>
+    <div class="df"><span>→ next project · Esc close</span><button onclick="next()">Next project →</button></div>`;
+  document.getElementById('detail').classList.add('on');
+  map.flyTo(p.ll, Math.max(map.getZoom(), 4), { duration: .6 });
+}
+function setStage(k) { if (!sel || sel.dropped || sel.stage === k) return; sel.stage = k; markDirty(); buildChips(); select(sel); }
+function closeD() { sel = null; document.getElementById('detail').classList.remove('on'); render(); }
+function next() { const v = visible(); if (!v.length) return; select(v[(v.indexOf(sel) + 1) % v.length]); }
 
-    <!-- Custom Safety Modal -->
-    <div id="modal-overlay">
-        <div class="modal-box">
-            <h3>Unsaved Changes!</h3>
-            <p>You have made edits to the current data. If you load a new map now, you will lose your meeting notes. Do you want to discard them?</p>
-            <div class="modal-btn-group">
-                <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Go Back</button>
-                <button class="modal-btn modal-btn-danger" onclick="confirmDiscard()">Discard Changes</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Core Scripts -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-    <script>
-        const map = L.map('map').setView([20, 0], 2);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-        
-        // MarkerClusterGroup handles overlaps with Leaflet's default green/yellow/red styling
-        const markerGroup = L.markerClusterGroup({
-            maxClusterRadius: 40, 
-            spiderfyOnMaxZoom: true,
-            showCoverageOnHover: false,
-            zoomToBoundsOnClick: true
-        }).addTo(map);
-
-        let currentData = [];
-        let currentFilename = "Meeting_Export.xlsx";
-        let activeIndex = null; 
-        let mapMarkers = {}; 
-        let hasUnsavedChanges = false;
-        
-        // Modal State Variables
-        let pendingAction = null; 
-
-        // Block accidental tab closures
-        window.addEventListener('beforeunload', function (e) {
-            if (hasUnsavedChanges) {
-                e.preventDefault();
-                e.returnValue = ''; 
-            }
-        });
-
-        // --- Custom Modal Logic ---
-        function showModal(action) {
-            pendingAction = action;
-            document.getElementById('modal-overlay').style.display = 'flex';
-        }
-
-        function closeModal() {
-            pendingAction = null;
-            document.getElementById('modal-overlay').style.display = 'none';
-        }
-
-        function confirmDiscard() {
-            document.getElementById('modal-overlay').style.display = 'none';
-            hasUnsavedChanges = false;
-            if (pendingAction) pendingAction();
-        }
-
-        // --- Parsing Logic ---
-        function parseCoordinates(locStr) {
-            if (!locStr) return null;
-            const dmsRegex = /^\s*(\d+)\s+(\d+)\s*([\d.]+)?\s*([NSns])\s+(\d+)\s+(\d+)\s*([\d.]+)?\s*([EWew])\s*$/;
-            const match = locStr.match(dmsRegex);
-            if (match) {
-                let lat = parseFloat(match[1]) + (parseFloat(match[2]) / 60) + (parseFloat(match[3] || 0) / 3600);
-                if (match[4].toUpperCase() === 'S') lat *= -1;
-                let lng = parseFloat(match[5]) + (parseFloat(match[6]) / 60) + (parseFloat(match[7] || 0) / 3600);
-                if (match[8].toUpperCase() === 'W') lng *= -1;
-                return { lat, lng };
-            }
-            if (locStr.includes(',')) {
-                const parts = locStr.split(',');
-                if (parts.length === 2) {
-                    const lat = parseFloat(parts[0].trim());
-                    const lng = parseFloat(parts[1].trim());
-                    if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
-                }
-            }
-            return null; 
-        }
-
-        function getMarkerIcon(number, isActive) {
-            const size = isActive ? 45 : 30; 
-            return L.divIcon({ className: `custom-marker ${isActive ? 'active' : ''}`, html: `<div>${number}</div>`, iconSize: [size, size], iconAnchor: [size/2, size/2] });
-        }
-
-        function setActiveIndicator(text, type) {
-            const ind = document.getElementById('active-indicator');
-            ind.innerText = text;
-            if (type === 'cloud') {
-                ind.style.background = '#dbeafe'; ind.style.color = '#1e3a8a'; ind.style.borderColor = '#bfdbfe';
-            } else if (type === 'manual') {
-                ind.style.background = '#fef08a'; ind.style.color = '#854d0e'; ind.style.borderColor = '#fde047';
-            }
-        }
-
-        // --- File Loading ---
-        function requestDatasetLoad(filename, mapLabel, btnElement) {
-            if (hasUnsavedChanges) {
-                showModal(() => loadDataset(filename, mapLabel, btnElement));
-            } else {
-                loadDataset(filename, mapLabel, btnElement);
-            }
-        }
-
-        async function loadDataset(filename, mapLabel, btnElement) {
-            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-            if(btnElement) btnElement.classList.add('active');
-            setActiveIndicator(`Loading ${filename}...`, 'cloud');
-            document.getElementById('skipped-warning').style.display = 'none';
-
-            try {
-                // Cache-busting parameter to ensure we pull the freshest file from GitHub/Server
-                const response = await fetch(filename + '?t=' + new Date().getTime());
-                if (!response.ok) throw new Error("File not found");
-                
-                const arrayBuffer = await response.arrayBuffer();
-                parseWorkbook(arrayBuffer, filename);
-                
-                setActiveIndicator(`Active: ${mapLabel} (${filename})`, 'cloud');
-                hasUnsavedChanges = false;
-            } catch (error) {
-                console.error("Dataset Load Error:", error);
-                
-                // If running locally, browsers block fetch(). Guide the user to use manual upload.
-                if (window.location.protocol === 'file:') {
-                    setActiveIndicator(`Blocked by Browser Security`, 'manual');
-                    const warnEl = document.getElementById('skipped-warning');
-                    warnEl.innerText = `⚠️ To use this offline, click "Choose File" below and manually select ${filename}.`;
-                    warnEl.style.display = 'block';
-                } else {
-                    setActiveIndicator(`Failed to load: ${filename}`, 'manual');
-                }
-            }
-        }
-
-        document.getElementById('excel-file').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const handleFile = () => {
-                document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
-                setActiveIndicator(`Active: Manual Upload (${file.name})`, 'manual');
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    parseWorkbook(evt.target.result, file.name);
-                    hasUnsavedChanges = false;
-                }
-                reader.readAsArrayBuffer(file);
-            };
-
-            if (hasUnsavedChanges) {
-                showModal(handleFile);
-                e.target.value = ''; // Reset input so it can be re-selected if user cancels
-            } else {
-                handleFile();
-            }
-        });
-
-        function parseWorkbook(dataBuffer, filename) {
-            currentFilename = filename;
-            const workbook = XLSX.read(dataBuffer, {type: 'array'});
-            // {defval: ""} captures blank columns like "is SAM?" perfectly
-            currentData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {defval: ""});
-            closeRightPane();
-            processData();
-        }
-
-        // --- Data Processing & UI ---
-        function processData() {
-            markerGroup.clearLayers();
-            mapMarkers = {};
-            document.getElementById('list-section').innerHTML = '';
-            
-            let displayNum = 1; 
-            let skippedCount = 0; 
-
-            currentData.forEach((row, dataIndex) => {
-                const locStr = row.Location || row.location;
-                const coords = parseCoordinates(locStr);
-                
-                if (coords) {
-                    const currentNum = displayNum; 
-                    
-                    // Pulling in Title, Capacity, and Logo for tooltips
-                    const title = row["Project Name"] || row["Platform Name"] || row.Field || row.Label || row["OED ID"] || `Location ${currentNum}`;
-                    const capacity = row["Total Capacity"] || row.Capacity || 'TBC';
-                    const logoUrl = row["Logo"] || row["Logo URL"] || null; 
-                    
-                    const marker = L.marker([coords.lat, coords.lng], { icon: getMarkerIcon(currentNum, false, logoUrl) });
-                    
-                    // Add the permanent rectangular label next to the dot
-                    const labelHtml = `
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            ${logoUrl ? `<img src="${logoUrl}" style="width:25px; height:25px; object-fit:contain;" onerror="this.style.display='none'"/>` : ''}
-                            <div style="display: flex; flex-direction: column;">
-                                <span style="font-weight: 700; color: #111; font-size: 11px;">${title}</span>
-                                <span style="font-size: 10px; color: #555;">Total Capacity: <b>${capacity}</b></span>
-                            </div>
-                        </div>
-                    `;
-
-                    marker.bindTooltip(labelHtml, { 
-                        permanent: true, 
-                        direction: 'right', 
-                        offset: [20, 0],
-                        className: `theme-blue` // Add custom CSS class if you want custom styling later
-                    });
-                    
-                    marker.on('click', () => selectLocation(dataIndex, currentNum, coords));
-                    markerGroup.addLayer(marker);
-                    mapMarkers[dataIndex] = marker;
-
-                    const listItem = document.createElement('div');
-                    listItem.className = 'list-item';
-                    listItem.id = `list-item-${dataIndex}`;
-                    listItem.innerHTML = `<div class="list-number">${currentNum}</div><div class="list-text">${title}</div>`;
-                    listItem.onclick = () => selectLocation(dataIndex, currentNum, coords);
-                    document.getElementById('list-section').appendChild(listItem);
-                    
-                    displayNum++;
-                } else {
-                    skippedCount++;
-                }
-            });
-
-            const warnEl = document.getElementById('skipped-warning');
-            if (skippedCount > 0) {
-                // Append instead of overwrite in case the security warning is also showing
-                warnEl.innerHTML += `<br>⚠️ ${skippedCount} rows skipped (missing/invalid "Location" coordinates)`;
-                warnEl.style.display = 'block';
-            }
-
-            if (displayNum > 1) {
-                map.fitBounds(markerGroup.getBounds(), { padding: [50, 50] });
-            }
-        }
-
-        function selectLocation(dataIndex, number, coords) {
-            if (activeIndex !== null && mapMarkers[activeIndex]) {
-                const oldNum = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
-                mapMarkers[activeIndex].setIcon(getMarkerIcon(oldNum, false));
-                document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
-            }
-            activeIndex = dataIndex;
-            
-            const targetMarker = mapMarkers[dataIndex];
-            targetMarker.setIcon(getMarkerIcon(number, true));
-            document.getElementById(`list-item-${dataIndex}`).classList.add('active');
-            
-            buildRightPane(dataIndex, number);
-
-            // Smart zoom logic (Cluster awareness vs standard country zoom)
-            const parentCluster = markerGroup.getVisibleParent(targetMarker);
-            if (parentCluster && parentCluster !== targetMarker) {
-                markerGroup.zoomToShowLayer(targetMarker, function() {
-                    map.panTo([coords.lat, coords.lng]);
-                });
-            } else {
-                map.flyTo([coords.lat, coords.lng], 5, { duration: 0.5 });
-            }
-        }
-
-        function buildRightPane(dataIndex, number) {
-            const rowData = currentData[dataIndex];
-            document.getElementById('header-number').innerText = number;
-            document.getElementById('header-text').innerText = rowData["Platform Name"] || rowData.Field || rowData.Label || 'Details';
-            
-            let html = '';
-            for (const key in rowData) {
-                const val = rowData[key] || '';
-                if (key.startsWith('---')) {
-                    html += `<div class="section-divider">${key.replace(/---/g, '').trim()}</div>`;
-                    continue; 
-                }
-                if (key.trim() === '') continue;
-
-                const isNotes = key.toLowerCase().includes('note') || key.toLowerCase().includes('action');
-                html += `
-                    <div class="data-row">
-                        <div class="data-label">${key}</div>
-                        ${isNotes ? `<textarea class="data-input" onchange="updateData(${dataIndex}, '${key}', this.value)">${val}</textarea>` : `<input type="text" class="data-input" value="${val}" onchange="updateData(${dataIndex}, '${key}', this.value)">`}
-                    </div>`;
-            }
-            document.getElementById('right-content').innerHTML = html;
-            document.getElementById('right-pane').classList.add('active');
-        }
-
-        function closeRightPane() {
-            document.getElementById('right-pane').classList.remove('active');
-            if (activeIndex !== null && mapMarkers[activeIndex]) {
-                const num = document.querySelector(`#list-item-${activeIndex} .list-number`).innerText;
-                mapMarkers[activeIndex].setIcon(getMarkerIcon(num, false));
-                document.getElementById(`list-item-${activeIndex}`).classList.remove('active');
-                activeIndex = null;
-            }
-        }
-
-        function updateData(dataIndex, key, newValue) {
-            currentData[dataIndex][key] = newValue;
-            hasUnsavedChanges = true; 
-            const status = document.getElementById('save-status');
-            status.style.opacity = 1;
-            setTimeout(() => { status.style.opacity = 0; }, 2000);
-            if (key.toLowerCase() === 'location') processData();
-        }
-
-        function exportData() {
-            if (currentData.length === 0) return;
-            const worksheet = XLSX.utils.json_to_sheet(currentData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Meeting Notes");
-            XLSX.writeFile(workbook, "Updated_" + currentFilename);
-            hasUnsavedChanges = false;
-        }
-    </script>
+document.getElementById('list').onclick = e => { const r = e.target.closest('.row'); if (r) select(projects.find(p => p.i == r.dataset.i)); };
+document.getElementById('funnel').onclick = e => { const el = e.target.closest('[data-s]'); if (!el) return; const k = +el.dataset.s; filt.stage = filt.stage === k ? null : k; render(); };
+document.getElementById('q').oninput = e => { filt.q = e.target.value.toLowerCase(); render(); };
+// List / Compare pickers. "Upload Excel file…" opens the file chooser for whichever picker asked.
+const curSel = document.getElementById('cur'), cmpSel = document.getElementById('cmp'), fileIn = document.getElementById('file');
+const opts = extra => DATASETS.map(d => `<option value="${d.file}">${esc(d.label)}</option>`).join('') + extra + `<option value="${UPLOAD}">Upload Excel file…</option>`;
+curSel.innerHTML = opts('');
+cmpSel.innerHTML = '<option value="">Off</option>' + opts('');
+let uploadFor = null, lastCur = DATASETS[0].file, lastCmp = '';
+function addUploaded(selEl, file) {
+  const o = document.createElement('option'); o.value = 'upload:' + file.name; o.textContent = file.name + ' (uploaded)'; o.file = file;
+  selEl.insertBefore(o, selEl.querySelector(`[value="${UPLOAD}"]`)); selEl.value = o.value; return o;
+}
+curSel.onchange = () => {
+  if (curSel.value === UPLOAD) { uploadFor = 'cur'; curSel.value = lastCur; return fileIn.click(); }
+  if (dirty && !confirm('You have edits that are not exported. Switch lists and lose them?')) { curSel.value = lastCur; return; }
+  lastCur = curSel.value;
+  load(curSel.selectedOptions[0].file || curSel.value);
+};
+cmpSel.onchange = () => {
+  if (cmpSel.value === UPLOAD) { uploadFor = 'cmp'; cmpSel.value = lastCmp; return fileIn.click(); }
+  lastCmp = cmpSel.value;
+  setCompare(cmpSel.selectedOptions[0].file || cmpSel.value);
+};
+fileIn.onchange = () => {
+  const f = fileIn.files[0]; fileIn.value = '';
+  if (!f) return;
+  if (uploadFor === 'cur') {
+    if (dirty && !confirm('You have edits that are not exported. Load this file and lose them?')) return;
+    lastCur = addUploaded(curSel, f).value; load(f);
+  } else { lastCmp = addUploaded(cmpSel, f).value; setCompare(f); }
+};
+// Export: one workbook with the updated list, the untouched original, a funnel summary,
+// and (in compare mode) what changed since the previous list.
+function exportWorkbook() {
+  const yn = (col, on) => /^[A-Z]+$/.test(String(originalRows.find(r => filled(r[col]))?.[col] || '')) ? (on ? 'YES' : 'NO') : (on ? 'Yes' : 'No');
+  const has = col => originalRows.length && col in originalRows[0];
+  // Which columns hold the decision: dataset1 → "is SAM?"/"is SOM?", dataset2 → TAM/SAM/SOM.
+  const cols = has('is SAM?') ? { TAM: has('TAM') ? 'TAM' : null, SAM: 'is SAM?', SOM: 'is SOM?' } : { TAM: 'TAM', SAM: 'SAM', SOM: 'SOM' };
+  const byRow = new Map(current.map(p => [p.r, p]));
+  const updated = originalRows.map(r => {
+    const p = byRow.get(r), out = { ...r };
+    if (!p) return out;                       // rows without a valid location are kept unchanged
+    ['TAM', 'SAM', 'SOM'].forEach((k, j) => { if (cols[k]) out[cols[k]] = yn(cols[k], p.stage > j); });
+    out['Funnel stage'] = STAGE_LABEL[p.stage];
+    out['Notes'] = p.notes;
+    out['Edited in meeting'] = p.stage !== p.stage0 || p.notes !== (r.Notes || '') ? 'Yes' : '';
+    return out;
+  });
+  const cap = set => Math.round(set.reduce((s, p) => s + p.capex, 0));
+  const reached = k => current.filter(p => p.stage >= k);
+  const summary = [
+    { Stage: 'TAM', Projects: reached(1).length, 'EPCI capex ($M)': cap(reached(1)), 'Previous list': prev ? prev.filter(p => p.stage >= 1).length : '' },
+    { Stage: 'SAM', Projects: reached(2).length, 'EPCI capex ($M)': cap(reached(2)), 'Previous list': prev ? prev.filter(p => p.stage >= 2).length : '' },
+    { Stage: 'SOM', Projects: reached(3).length, 'EPCI capex ($M)': cap(reached(3)), 'Previous list': prev ? prev.filter(p => p.stage >= 3).length : '' },
+    { Stage: 'Outside TAM', Projects: current.filter(p => p.stage === 0).length, 'EPCI capex ($M)': '', 'Previous list': prev ? prev.filter(p => p.stage === 0).length : '' }
+  ];
+  const wb = XLSX.utils.book_new();
+  const sheet = (rows, name, widths) => { const ws = XLSX.utils.json_to_sheet(rows); if (widths) ws['!cols'] = widths.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
+  sheet(updated, 'Updated list');
+  sheet(summary, 'Funnel summary', [14, 10, 16, 14]);
+  if (prev) sheet(projects.map(p => ({ p, c: changeOf(p) })).filter(x => x.c).map(({ p, c }) => ({
+    'OED ID': p.id, Project: p.name, Operator: p.operator, Change: c.kind, Detail: p.dropped || !prevById[p.id] ? c.text : diffOf(p).map(d => `${d.label}: ${d.from} → ${d.to}`).join('; ')
+  })), 'Changes vs previous', [10, 34, 16, 10, 60]);
+  sheet(originalRows, 'Original (unchanged)');
+  dirty = false; setSub();
+  XLSX.writeFile(wb, `FPSO_funnel_${currentFile.replace(/\.xlsx?$/i, '')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+document.getElementById('export').onclick = exportWorkbook;
+document.getElementById('present').onclick = e => { document.body.classList.toggle('present'); e.target.textContent = document.body.classList.contains('present') ? '✎ Edit' : '▶ Present';
+  setTimeout(() => { map.invalidateSize(); fitAll(); }, 50); };
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+  if ('0123'.includes(e.key) && sel) setStage(+e.key);
+  if (e.key === 'ArrowRight') next();
+  if (e.key === 'Escape') closeD();
+});
+load(DATASETS[0].file);
+</script>
 </body>
 </html>
