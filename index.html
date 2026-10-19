@@ -135,6 +135,10 @@
   .pick { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.08); border-radius: 8px; padding: 4px 4px 4px 10px; font-size: 11px; color: #94a3b8; }
   .pick select { border: 0; border-radius: 6px; background: #fff; color: var(--navy); font-size: 12px; font-weight: 600; padding: 6px 8px; max-width: 220px; cursor: pointer; }
   .dirty { color: #fbbf24; font-weight: 600; }
+  .warn { color: #fca5a5; font-weight: 600; }
+  .drop { position: fixed; inset: 0; z-index: 2000; display: none; place-items: center; background: rgba(11,27,51,.75); backdrop-filter: blur(2px); }
+  .drop div { border: 3px dashed #22d3ee; border-radius: 18px; padding: 40px 48px; color: #fff; font-size: 20px; font-weight: 700; background: rgba(11,27,51,.6); }
+  body.dragging .drop { display: grid; }
   .cmp-only { display: none; }
   body.cmp .cmp-only { display: flex; }
   .delta { display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,.18); padding: 2px 7px; border-radius: 999px; }
@@ -185,7 +189,8 @@
     .pick { flex: 1 1 100%; justify-content: space-between; }
     .pick select { flex: 1; max-width: none; padding: 8px; }
     #present { display: none; }
-    #export { margin-left: auto; }
+    header > div:nth-child(2) { flex: 1 1 calc(100% - 50px); }   /* title takes the first row */
+    #upload, #export { flex: 1; order: 4; padding: 9px 10px; }
     .stage { min-width: 168px; padding: 10px 14px 10px 26px; }
     .stage:first-child { padding-left: 14px; }
     .stage .big, .outside .big { font-size: 24px; }
@@ -214,6 +219,7 @@
       <label class="pick"><span>Compare with</span><select id="cmp"></select></label>
       <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
     </div>
+    <button class="hbtn" id="upload" title="Load your own Excel file">⬆ Upload Excel</button>
     <button class="hbtn" id="present">▶ Present</button>
     <button class="hbtn primary" id="export">⬇ Export</button>
   </header>
@@ -258,6 +264,8 @@
     </div>
   </div>
 </div>
+
+<div class="drop" id="drop"><div>Drop the Excel file to load it</div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -353,7 +361,13 @@ let projects = [], sel = null, filt = { region: null, status: null, stage: null,
 const yes = v => String(v || '').trim().toLowerCase().startsWith('y');
 // dataset1 keeps historical SAM/SOM plus current "is SAM?"/"is SOM?" columns; the current ones win once filled.
 const filled = v => String(v ?? '').trim() !== '';
+// Edits are exported as extra "Updated: …" columns; the file's own columns are never changed.
+const U = k => 'Updated: ' + k;
 function stageOf(r) {
+  if (filled(r[U('TAM')]) || filled(r[U('SAM')]) || filled(r[U('SOM')])) return yes(r[U('SOM')]) ? 3 : yes(r[U('SAM')]) ? 2 : yes(r[U('TAM')]) ? 1 : 0;
+  return originalStageOf(r);
+}
+function originalStageOf(r) {
   if (filled(r['is SAM?']) || filled(r['is SOM?'])) return yes(r['is SOM?']) ? 3 : yes(r['is SAM?']) ? 2 : 1;
   if (yes(r.SOM)) return 3;
   if (yes(r.SAM)) return 2;
@@ -361,6 +375,8 @@ function stageOf(r) {
   return 0;
 }
 function parseLoc(s) {
+  const dec = String(s || '').match(/^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$/);   // "-22.13, -39.97"
+  if (dec && Math.abs(dec[1]) <= 90 && Math.abs(dec[2]) <= 180) return [+dec[1], +dec[2]];
   const m = String(s || '').match(/^\s*(\d+)\s+(\d+)\s*([\d.]+)?\s*([NS])\s+(\d+)\s+(\d+)\s*([\d.]+)?\s*([EW])\s*$/i);
   if (!m) return null;
   let lat = +m[1] + m[2] / 60 + (+m[3] || 0) / 3600, lng = +m[5] + m[6] / 60 + (+m[7] || 0) / 3600;
@@ -386,7 +402,8 @@ function toProject(r, i) {
     depth: r['Water Depth Group (M)'] || r['Water Depth'] || '—',
     build: r['New Build Hull'] || r['Contract Type'] || '—',
     product: r.product || r.Product || '—',
-    stage: stageOf(r), notes: r.Notes || ''
+    stage: stageOf(r), notes: U('Notes') in r ? String(r[U('Notes')]) : String(r.Notes || ''),
+    stage0: originalStageOf(r), notes0: String(r.Notes || '')   // what the file's own columns say, for "What changed"
   };
 }
 // Lists published next to this page. Anything else can be loaded with "Upload Excel file…".
@@ -433,9 +450,9 @@ function changeOf(p) {
   return null;
 }
 
-let currentFile = '', originalRows = [], dirty = false;
+let currentFile = '', originalRows = [], dirty = false, skipped = 0;
 function setSub() {
-  document.getElementById('sub').innerHTML = `${current.length} projects · ${esc(currentFile)}${dirty ? ' · <span class="dirty">unsaved edits, Export to keep them</span>' : ''}`;
+  document.getElementById('sub').innerHTML = `${current.length} projects · ${esc(currentFile)}${skipped ? ` · <span class="warn">${skipped} row${skipped > 1 ? 's' : ''} skipped (no valid Location)</span>` : ''}${dirty ? ' · <span class="dirty">unsaved edits, Export to keep them</span>' : ''}`;
 }
 function markDirty() { if (!dirty) { dirty = true; setSub(); } }
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
@@ -451,7 +468,10 @@ async function load(src) {
   }
   currentFile = name; dirty = false;
   current = originalRows.map(toProject).filter(p => p.ll);
-  current.forEach(p => p.stage0 = p.stage);
+  skipped = originalRows.length - current.length;
+  if (!current.length) {
+    alert(`${currentFile} has no rows with a usable "Location" column.\n\nLocation can look like "22 07S 39 58W", "22 7 42.60S 39 58 7.20W" or "-22.13, -39.97". Project names are read from "Platform Name" or "Label".`);
+  }
   projects = current;
   filt = { region: null, status: null, stage: null, q: '', change: null };
   document.getElementById('q').value = '';
@@ -614,29 +634,46 @@ cmpSel.onchange = () => {
   lastCmp = cmpSel.value;
   setCompare(cmpSel.selectedOptions[0].file || cmpSel.value);
 };
+function openCurrent(f) {
+  if (dirty && !confirm('You have edits that are not exported. Load this file and lose them?')) return;
+  lastCur = addUploaded(curSel, f).value; load(f);
+}
+document.getElementById('upload').onclick = () => { uploadFor = 'cur'; fileIn.click(); };
+let dragDepth = 0;
+const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes('Files');
+addEventListener('dragenter', e => { if (isFileDrag(e)) { dragDepth++; document.body.classList.add('dragging'); } });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+addEventListener('dragover', e => { if (isFileDrag(e)) e.preventDefault(); });
+addEventListener('drop', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  const f = e.dataTransfer.files[0];
+  if (f && /\.(xlsx|xls|csv)$/i.test(f.name)) openCurrent(f); else if (f) alert('Please drop an Excel (.xlsx, .xls) or CSV file.');
+});
 fileIn.onchange = () => {
   const f = fileIn.files[0]; fileIn.value = '';
   if (!f) return;
-  if (uploadFor === 'cur') {
-    if (dirty && !confirm('You have edits that are not exported. Load this file and lose them?')) return;
-    lastCur = addUploaded(curSel, f).value; load(f);
-  } else { lastCmp = addUploaded(cmpSel, f).value; setCompare(f); }
+  if (uploadFor === 'cur') return openCurrent(f);
+  lastCmp = addUploaded(cmpSel, f).value; setCompare(f);
 };
 // Export: one workbook with the updated list, the untouched original, a funnel summary,
 // and (in compare mode) what changed since the previous list.
 function exportWorkbook() {
-  const yn = (col, on) => /^[A-Z]+$/.test(String(originalRows.find(r => filled(r[col]))?.[col] || '')) ? (on ? 'YES' : 'NO') : (on ? 'Yes' : 'No');
-  const has = col => originalRows.length && col in originalRows[0];
-  // Which columns hold the decision: dataset1 → "is SAM?"/"is SOM?", dataset2 → TAM/SAM/SOM.
-  const cols = has('is SAM?') ? { TAM: has('TAM') ? 'TAM' : null, SAM: 'is SAM?', SOM: 'is SOM?' } : { TAM: 'TAM', SAM: 'SAM', SOM: 'SOM' };
   const byRow = new Map(current.map(p => [p.r, p]));
+  const yn = on => on ? 'Yes' : 'No';
+  // Original columns are copied as-is; edits go into "Updated: …" columns at the end (replaced, not duplicated, on re-export).
   const updated = originalRows.map(r => {
     const p = byRow.get(r), out = { ...r };
     if (!p) return out;                       // rows without a valid location are kept unchanged
-    ['TAM', 'SAM', 'SOM'].forEach((k, j) => { if (cols[k]) out[cols[k]] = yn(cols[k], p.stage > j); });
-    out['Funnel stage'] = STAGE_LABEL[p.stage];
-    out['Notes'] = p.notes;
-    out['Edited in meeting'] = p.stage !== p.stage0 || p.notes !== (r.Notes || '') ? 'Yes' : '';
+    const what = [];
+    if (p.stage !== p.stage0) what.push(`Stage: ${STAGES[p.stage0]} → ${STAGES[p.stage]}`);
+    if (p.notes !== p.notes0) what.push('Notes edited');
+    out[U('Funnel stage')] = STAGE_LABEL[p.stage];
+    out[U('TAM')] = yn(p.stage >= 1);
+    out[U('SAM')] = yn(p.stage >= 2);
+    out[U('SOM')] = yn(p.stage >= 3);
+    out[U('Notes')] = p.notes;
+    out[U('What changed')] = what.join('; ');
     return out;
   });
   const cap = set => Math.round(set.reduce((s, p) => s + p.capex, 0));
@@ -649,12 +686,14 @@ function exportWorkbook() {
   ];
   const wb = XLSX.utils.book_new();
   const sheet = (rows, name, widths) => { const ws = XLSX.utils.json_to_sheet(rows); if (widths) ws['!cols'] = widths.map(w => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, name); };
-  sheet(updated, 'Updated list');
+  const ws = XLSX.utils.json_to_sheet(updated);
+  ws['!autofilter'] = { ref: ws['!ref'] };   // filter arrows on the header row, e.g. to show only changed rows
+  XLSX.utils.book_append_sheet(wb, ws, 'Updated list');
   sheet(summary, 'Funnel summary', [14, 10, 16, 14]);
   if (prev) sheet(projects.map(p => ({ p, c: changeOf(p) })).filter(x => x.c).map(({ p, c }) => ({
     'OED ID': p.id, Project: p.name, Operator: p.operator, Change: c.kind, Detail: p.dropped || !prevById[p.id] ? c.text : diffOf(p).map(d => `${d.label}: ${d.from} → ${d.to}`).join('; ')
   })), 'Changes vs previous', [10, 34, 16, 10, 60]);
-  sheet(originalRows, 'Original (unchanged)');
+  sheet(originalRows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith('Updated: ')))), 'Original (unchanged)');
   dirty = false; setSub();
   XLSX.writeFile(wb, `FPSO_funnel_${currentFile.replace(/\.xlsx?$/i, '')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
