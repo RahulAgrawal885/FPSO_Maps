@@ -139,6 +139,24 @@
   .drop { position: fixed; inset: 0; z-index: 2000; display: none; place-items: center; background: rgba(11,27,51,.75); backdrop-filter: blur(2px); }
   .drop div { border: 3px dashed #22d3ee; border-radius: 18px; padding: 40px 48px; color: #fff; font-size: 20px; font-weight: 700; background: rgba(11,27,51,.6); }
   body.dragging .drop { display: grid; }
+  .dlg { position: fixed; inset: 0; z-index: 2100; display: none; place-items: center; padding: 16px; background: rgba(11,27,51,.55); backdrop-filter: blur(2px); }
+  .dlg.on { display: grid; }
+  .dlg .box { background: #fff; border-radius: 14px; width: min(480px, 100%); padding: 20px 22px; box-shadow: 0 20px 50px rgba(15,23,42,.35); }
+  .dlg h3 { margin: 0 0 12px; font-size: 17px; }
+  .dlg p { font-size: 13px; color: #334155; line-height: 1.5; margin: 0 0 10px; }
+  .checks { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+  .checks li { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+  .checks li.ok { background: #ecfdf5; } .checks li.ok b { color: #047857; }
+  .checks li.bad { background: #fef2f2; } .checks li.bad b { color: #b91c1c; }
+  .checks span { color: #334155; }
+  .dlg .hint { color: var(--muted); font-size: 12px; }
+  .dlg code { background: var(--bg); border-radius: 4px; padding: 1px 4px; font-size: 12px; }
+  .dlg .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .dlg button { border: 0; border-radius: 8px; padding: 9px 14px; font-weight: 600; font-size: 13px; cursor: pointer; background: var(--navy); color: #fff; }
+  .dlg button.ghost { background: #f1f5f9; color: #334155; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 20px); z-index: 2050; width: min(560px, calc(100% - 32px)); background: var(--navy); color: #e2e8f0; font-size: 13px; line-height: 1.45; padding: 12px 16px; border-radius: 12px; box-shadow: 0 12px 30px rgba(15,23,42,.35); opacity: 0; pointer-events: none; transition: .25s; }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .toast b { color: #fff; }
   .cmp-only { display: none; }
   body.cmp .cmp-only { display: flex; }
   .delta { display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,.18); padding: 2px 7px; border-radius: 999px; }
@@ -265,6 +283,11 @@
   </div>
 </div>
 
+<div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-title"><div class="box">
+  <h3 id="dlg-title"></h3><div id="dlg-body"></div>
+  <div class="btns"><button class="ghost" id="dlg-close">Close</button><button id="dlg-retry">Choose another file</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
 <div class="drop" id="drop"><div>Drop the Excel file to load it</div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -367,12 +390,12 @@ function stageOf(r) {
   if (filled(r[U('TAM')]) || filled(r[U('SAM')]) || filled(r[U('SOM')])) return yes(r[U('SOM')]) ? 3 : yes(r[U('SAM')]) ? 2 : yes(r[U('TAM')]) ? 1 : 0;
   return originalStageOf(r);
 }
+// Blank or missing TAM/SAM/SOM means "not decided yet" → Out. SOM implies SAM implies TAM.
 function originalStageOf(r) {
-  if (filled(r['is SAM?']) || filled(r['is SOM?'])) return yes(r['is SOM?']) ? 3 : yes(r['is SAM?']) ? 2 : 1;
-  if (yes(r.SOM)) return 3;
-  if (yes(r.SAM)) return 2;
-  if (!('TAM' in r) || yes(r.TAM)) return 1;   // sheets with no TAM column: every listed project is in TAM
-  return 0;
+  const current = filled(r['is SAM?']) || filled(r['is SOM?']);   // dataset1's current-decision columns
+  if (current ? yes(r['is SOM?']) : yes(r.SOM)) return 3;
+  if (current ? yes(r['is SAM?']) : yes(r.SAM)) return 2;
+  return yes(r.TAM) ? 1 : 0;
 }
 function parseLoc(s) {
   const dec = String(s || '').match(/^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$/);   // "-22.13, -39.97"
@@ -387,10 +410,32 @@ const money = v => !v ? '—' : v >= 1000 ? `$${(v / 1000).toFixed(1)}B` : `$${M
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const shortRegion = r => String(r || '—').replace('Latin America and the Caribbean', 'LatAm');
 
-function toProject(r, i) {
+// The only columns a file must have: a project name and a location (one column, or latitude + longitude).
+// Header matching ignores case, spaces and punctuation; earlier names in each list win.
+const NAME_COLS = ['Label', 'Platform Name', 'Project Name', 'FPSO Name', 'FPSO', 'Project', 'Name'];
+const LOC_COLS = ['Location', 'Coordinates', 'Coords', 'Lat/Long', 'Lat/Lon', 'Lat Long', 'Position'];
+const LAT_COLS = ['Latitude', 'Lat'], LNG_COLS = ['Longitude', 'Long', 'Lng', 'Lon'];
+const FUNNEL_COLS = ['TAM', 'SAM', 'SOM', 'is SAM?', 'is SOM?', U('TAM')];
+const norm = h => String(h).toLowerCase().replace(/[^a-z0-9]/g, '');
+function detectColumns(headers) {
+  const find = list => list.map(c => headers.find(h => norm(h) === norm(c))).find(Boolean) || null;
+  return { name: find(NAME_COLS), loc: find(LOC_COLS), lat: find(LAT_COLS), lng: find(LNG_COLS),
+           funnel: FUNNEL_COLS.some(c => headers.includes(c)) };
+}
+function locOf(r, cols) {
+  if (cols.loc) { const ll = parseLoc(r[cols.loc]); if (ll) return ll; }
+  if (cols.lat && cols.lng) {
+    const lat = parseFloat(r[cols.lat]), lng = parseFloat(r[cols.lng]);
+    if (isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return [lat, lng];
+  }
+  return null;
+}
+// Called as rows.map(toProject): the third argument is the rows array, which carries the detected columns.
+function toProject(r, i, rows) {
+  const cols = rows.cols;
   return {
-    i, r, id: String(r['OED ID'] || ''), ll: parseLoc(r.Location),
-    name: r.Label || r['Platform Name'] || `Project ${i + 1}`,
+    i, r, id: String(r['OED ID'] || r.ID || ''), ll: locOf(r, cols),
+    name: String(r[cols.name] ?? '').trim() || `Project ${i + 1}`,
     country: r.Country, region: shortRegion(r.WMSuperRegion || r['WM Region']),
     status: String(r['Facility Status'] || '—').trim(),
     operator: r['Operator Group'] || r.Operator || '',
@@ -420,8 +465,31 @@ async function readSheet(src) {
     if (!res.ok) throw new Error(`${src} not found`);
     buf = await res.arrayBuffer();
   } else buf = await src.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array' });
-  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+  const wb = XLSX.read(buf, { type: 'array' }), ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  rows.headers = (XLSX.utils.sheet_to_json(ws, { header: 1 })[0] || []).map(String);
+  rows.cols = detectColumns(rows.headers);
+  return rows;
+}
+// Checks a file before it replaces what is on screen. Returns null when it can be loaded, or the popup content.
+function checkFile(rows, fileName) {
+  const c = rows.cols, valid = rows.filter(r => locOf(r, c)).length;
+  const locCol = c.loc ? `"${c.loc}"` : c.lat && c.lng ? `"${c.lat}" + "${c.lng}"` : null;
+  if (rows.length && c.name && locCol && valid) return null;
+  const sample = c.loc && rows.find(r => filled(r[c.loc]))?.[c.loc];
+  const line = (ok, label, text) => `<li class="${ok ? 'ok' : 'bad'}"><b>${ok ? '✓' : '✕'} ${label}</b><span>${text}</span></li>`;
+  return {
+    title: `${esc(fileName)} can't be loaded`,
+    body: !rows.length ? '<p>The first sheet of this file is empty.</p>' : `<ul class="checks">
+      ${line(!!c.name, 'Project name', c.name ? `Found column "${esc(c.name)}"`
+        : 'No column found. Add a column called <i>Platform Name</i>, <i>Project Name</i> or <i>Label</i>.')}
+      ${line(!!locCol && valid > 0, 'Location', !locCol
+        ? 'No column found. Add a column called <i>Location</i>, or two columns <i>Latitude</i> and <i>Longitude</i>.'
+        : valid ? `Found column ${esc(locCol)}: ${valid} of ${rows.length} rows have readable coordinates.`
+        : `Found column ${esc(locCol)}, but none of its ${rows.length} rows has readable coordinates${sample ? ` (first value: "${esc(sample)}")` : ''}.`)}
+    </ul>
+    <p class="hint">Locations can be written as <code>22 07S 39 58W</code>, <code>22 7 42.60S 39 58 7.20W</code> or <code>-22.13, -39.97</code>.</p>`
+  };
 }
 
 // Compare: projects are matched across lists by OED ID.
@@ -457,21 +525,24 @@ function setSub() {
 function markDirty() { if (!dirty) { dirty = true; setSub(); } }
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 
+// Returns true when the file was loaded, false when it was rejected (the previous list stays on screen).
 async function load(src) {
   const name = typeof src === 'string' ? src : src.name;
-  try { originalRows = await readSheet(src); }
+  let rows;
+  try { rows = await readSheet(src); }
   catch (err) {
-    document.getElementById('sub').textContent = location.protocol === 'file:'
-      ? 'Your browser blocks reading files when this page is opened from disk. Pick "Upload Excel file…" under List.'
-      : `Couldn't load ${name}.`;
-    return;
+    showDialog({ title: `Couldn't open ${esc(name)}`, body: location.protocol === 'file:'
+      ? '<p>Your browser blocks reading files when this page is opened from disk. Use <b>Upload Excel</b> instead.</p>'
+      : '<p>The file could not be read. Check that it is an Excel (.xlsx, .xls) or CSV file.</p>' });
+    return false;
   }
+  const problem = checkFile(rows, name);
+  if (problem) { showDialog({ ...problem, retry: true }); return false; }
+  originalRows = rows;
   currentFile = name; dirty = false;
   current = originalRows.map(toProject).filter(p => p.ll);
   skipped = originalRows.length - current.length;
-  if (!current.length) {
-    alert(`${currentFile} has no rows with a usable "Location" column.\n\nLocation can look like "22 07S 39 58W", "22 7 42.60S 39 58 7.20W" or "-22.13, -39.97". Project names are read from "Platform Name" or "Label".`);
-  }
+  if (!rows.cols.funnel) toast(`No TAM / SAM / SOM columns in ${esc(name)}, so all ${current.length} projects start as <b>Out</b>. Set each project's stage on the map; Export adds the TAM, SAM and SOM columns.`);
   projects = current;
   filt = { region: null, status: null, stage: null, q: '', change: null };
   document.getElementById('q').value = '';
@@ -481,6 +552,7 @@ async function load(src) {
   // Deep link: index.html#Abadi opens that project's card
   const hit = location.hash && projects.find(p => p.name.toLowerCase().includes(decodeURIComponent(location.hash.slice(1).split('&')[0]).toLowerCase()));
   if (hit) select(hit);
+  return true;
 }
 let prevSrc = null;
 async function setCompare(src) {
@@ -488,8 +560,12 @@ async function setCompare(src) {
   prevFile = !src ? '' : typeof src === 'string' ? src : src.name;
   if (!src) { prev = null; prevById = {}; projects = current; }
   else {
-    try { prev = (await readSheet(src)).map((r, i) => toProject(r, 1000 + i)).filter(p => p.ll); }
-    catch (err) { alert(`Couldn't load ${prevFile} to compare.`); return setCompare(null); }
+    let rows;
+    try { rows = await readSheet(src); }
+    catch (err) { showDialog({ title: `Couldn't open ${esc(prevFile)}`, body: '<p>The file could not be read.</p>' }); return false; }
+    const problem = checkFile(rows, prevFile);
+    if (problem) { showDialog(problem); return false; }
+    prev = rows.map((r, i) => toProject(r, 1000 + i, rows)).filter(p => p.ll);
     prevById = Object.fromEntries(prev.map(p => [p.id, p]));
     const ids = new Set(current.map(p => p.id));
     projects = [...current, ...prev.filter(p => !ids.has(p.id)).map(p => ({ ...p, dropped: true }))];
@@ -497,6 +573,7 @@ async function setCompare(src) {
   document.body.classList.toggle('cmp', !!src);
   filt.change = null; buildChips(); render();
   if (sel) select(projects.find(p => p.id === sel.id) || current[0]);
+  return true;
 }
 
 function chipRow(el, key, values) {
@@ -626,18 +703,37 @@ function addUploaded(selEl, file) {
 curSel.onchange = () => {
   if (curSel.value === UPLOAD) { uploadFor = 'cur'; curSel.value = lastCur; return fileIn.click(); }
   if (dirty && !confirm('You have edits that are not exported. Switch lists and lose them?')) { curSel.value = lastCur; return; }
-  lastCur = curSel.value;
-  load(curSel.selectedOptions[0].file || curSel.value);
+  const want = curSel.value;
+  curSel.value = lastCur;
+  load(curSel.querySelector(`option[value="${CSS.escape(want)}"]`).file || want).then(ok => { if (ok) curSel.value = lastCur = want; });
 };
 cmpSel.onchange = () => {
   if (cmpSel.value === UPLOAD) { uploadFor = 'cmp'; cmpSel.value = lastCmp; return fileIn.click(); }
-  lastCmp = cmpSel.value;
-  setCompare(cmpSel.selectedOptions[0].file || cmpSel.value);
+  const want = cmpSel.value;
+  cmpSel.value = lastCmp;
+  setCompare(cmpSel.querySelector(`option[value="${CSS.escape(want)}"]`).file || want).then(ok => { if (ok) cmpSel.value = lastCmp = want; });
 };
-function openCurrent(f) {
+async function openCurrent(f) {
   if (dirty && !confirm('You have edits that are not exported. Load this file and lose them?')) return;
-  lastCur = addUploaded(curSel, f).value; load(f);
+  if (await load(f)) lastCur = addUploaded(curSel, f).value;
 }
+function showDialog({ title, body, retry }) {
+  document.getElementById('dlg-title').innerHTML = title;
+  document.getElementById('dlg-body').innerHTML = body;
+  document.getElementById('dlg-retry').style.display = retry ? '' : 'none';
+  document.getElementById('dlg').classList.add('on');
+  document.getElementById(retry ? 'dlg-retry' : 'dlg-close').focus();
+}
+const closeDialog = () => document.getElementById('dlg').classList.remove('on');
+document.getElementById('dlg-close').onclick = closeDialog;
+document.getElementById('dlg-retry').onclick = () => { closeDialog(); uploadFor = 'cur'; fileIn.click(); };
+document.getElementById('dlg').onclick = e => { if (e.target.id === 'dlg') closeDialog(); };
+let toastTimer;
+function toast(html) {
+  const t = document.getElementById('toast'); t.innerHTML = html; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 9000);
+}
+document.getElementById('toast').onclick = e => e.currentTarget.classList.remove('on');
 document.getElementById('upload').onclick = () => { uploadFor = 'cur'; fileIn.click(); };
 let dragDepth = 0;
 const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes('Files');
@@ -654,7 +750,7 @@ fileIn.onchange = () => {
   const f = fileIn.files[0]; fileIn.value = '';
   if (!f) return;
   if (uploadFor === 'cur') return openCurrent(f);
-  lastCmp = addUploaded(cmpSel, f).value; setCompare(f);
+  setCompare(f).then(ok => { if (ok) lastCmp = addUploaded(cmpSel, f).value; });
 };
 // Export: one workbook with the updated list, the untouched original, a funnel summary,
 // and (in compare mode) what changed since the previous list.
@@ -704,7 +800,7 @@ document.addEventListener('keydown', e => {
   if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
   if ('0123'.includes(e.key) && sel) setStage(+e.key);
   if (e.key === 'ArrowRight') next();
-  if (e.key === 'Escape') closeD();
+  if (e.key === 'Escape') { if (document.getElementById('dlg').classList.contains('on')) return closeDialog(); closeD(); }
 });
 load(DATASETS[0].file);
 </script>
